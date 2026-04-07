@@ -9,7 +9,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- KONFIGURACJA ---
-SHEET_NAME = "Baza_Zlecen_Transportowych"
+# Używamy bezpośredniego linku do Twojego arkusza zamiast samej nazwy
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -20,7 +21,8 @@ def get_gsheets_client():
 def load_data():
     try:
         client = get_gsheets_client()
-        spreadsheet = client.open(SHEET_NAME)
+        # Łączenie po twardym linku URL (niezawodne)
+        spreadsheet = client.open_by_url(SHEET_URL)
         
         ws_przewoznicy = spreadsheet.worksheet("Zleceniobiorcy")
         dane_przewoznicy = pd.DataFrame(ws_przewoznicy.get_all_records())
@@ -37,7 +39,7 @@ def load_data():
 
 def append_to_gsheets(worksheet_name, row_data):
     client = get_gsheets_client()
-    client.open(SHEET_NAME).worksheet(worksheet_name).append_row(row_data)
+    client.open_by_url(SHEET_URL).worksheet(worksheet_name).append_row(row_data)
 
 def generate_security_qr(order_num, carrier, loading, unloading):
     SECRET_SALT = "CMR2026!SekretneZabezpieczenie" 
@@ -90,7 +92,7 @@ def generate_pdf(data, qr_bytes):
     return pdf.output(dest='S').encode('latin-1')
 
 # --- INTERFEJS ---
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Zlecenia Transportowe")
 st.title("Wystawianie Zleceń i CMR")
 
 if st.button("🔄 Odśwież bazy z Google Sheets"):
@@ -122,7 +124,7 @@ with st.form("form"):
         waga = st.text_input("Waga brutto (kg)", "24000")
         uwagi = st.text_area("Uwagi / Instrukcje")
 
-    submit = st.form_submit_button("Generuj PDF i Zapisz")
+    submit = st.form_submit_button("Generuj PDF i Zapisz do Historii")
 
 if submit:
     qr_bytes, hash_qr = generate_security_qr(nr_zlecenia, wybrany_przewoznik, adres_zaladunku, adres_rozladunku)
@@ -134,7 +136,7 @@ if submit:
         rodzaj_towaru, ilosc_opakowan, rodzaj_opakowania, waga, "", uwagi, hash_qr
     ]
     append_to_gsheets("Zlecenia", wiersz_historii)
-    st.success("Zapisano w Google Sheets!")
+    st.success("Sukces! Zlecenie zostało zapisane w Google Sheets.")
 
     order_data = {
         "Numer zlecenia": nr_zlecenia, "Zleceniodawca": zleceniodawca, "Zleceniobiorca": wybrany_przewoznik,
@@ -145,4 +147,4 @@ if submit:
     }
     
     pdf_bytes = generate_pdf(order_data, qr_bytes)
-    st.download_button("📄 Pobierz PDF Zlecenia", pdf_bytes, f"{nr_zlecenia.replace('/', '_')}.pdf", "application/pdf")
+    st.download_button("📄 Pobierz Gotowe Zlecenie (PDF)", pdf_bytes, f"Zlecenie_{nr_zlecenia.replace('/', '_')}.pdf", "application/pdf")
