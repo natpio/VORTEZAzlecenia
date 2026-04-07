@@ -1,0 +1,7 @@
+streamlit
+pandas
+qrcode
+Pillow
+fpdf2
+gspread
+google-auth
