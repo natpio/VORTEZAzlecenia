@@ -100,10 +100,14 @@ def generate_pdf(data, qr_bytes):
     pdf.cell(95, 20, txt=f"3. Przeznaczenie: {data['Adres rozladunku']}", border=1)
     pdf.cell(95, 20, txt=f"4. Miejsce zaladowania: {data['Adres zaladunku']}", border=1, ln=True)
     
-    # Kod QR na dokumencie
+    # --- POPRAWIONY KOD QR ---
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         tmp.write(qr_bytes)
-        pdf.image(tmp.name, x=160, y=10, w=30)
+        tmp.flush() # <--- Wymuszenie fizycznego zapisu na dysk
+        tmp_name = tmp.name
+        
+    pdf.image(tmp_name, x=160, y=10, w=30)
+    os.remove(tmp_name) # Posprzątanie pliku z serwera
         
     return bytes(pdf.output()) 
 
