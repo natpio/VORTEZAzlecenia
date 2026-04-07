@@ -10,8 +10,33 @@ from google.oauth2.service_account import Credentials
 import tempfile
 import urllib.request
 import os
+import time
 
-# --- KONFIGURACJA GOOGLE SHEETS ---
+# --- KONFIGURACJA STRONY DLA MODUŁU ---
+st.set_page_config(layout="wide", page_title="Nowe Zlecenie | TMS Pro", page_icon="📝")
+
+# --- WSTRZYKNIĘCIE CSS (EFEKT PREMIUM) ---
+st.markdown("""
+    <style>
+        .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+        .st-emotion-cache-1jicfl2 { padding: 1.5rem; border-radius: 10px; }
+        /* Główny przycisk akcji */
+        div.stButton > button:first-child {
+            background-color: #0f52ba;
+            color: white;
+            height: 3rem;
+            font-size: 1.1rem;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        div.stButton > button:first-child:hover {
+            background-color: #0a3d8c;
+            border-color: #0a3d8c;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- KONFIGURACJA BAZY DANYCH ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
@@ -24,6 +49,7 @@ def load_data():
     try:
         client = get_gsheets_client()
         spreadsheet = client.open_by_url(SHEET_URL)
+        
         ws_przewoznicy = spreadsheet.worksheet("Zleceniobiorcy")
         dane_przewoznicy = pd.DataFrame(ws_przewoznicy.get_all_records())
         lista_przewoznikow = dane_przewoznicy["Nazwa do listy"].tolist() if not dane_przewoznicy.empty else []
@@ -31,10 +57,11 @@ def load_data():
         ws_miejsca = spreadsheet.worksheet("Miejsca")
         dane_miejsca = pd.DataFrame(ws_miejsca.get_all_records())
         lista_miejsc = dane_miejsca["Nazwa do listy"].tolist() if not dane_miejsca.empty else []
-        return lista_przewoznikow, dane_przewoznicy, lista_miejsc, dane_miejsca
+        
+        return lista_przewoznikow, lista_miejsc
     except Exception as e:
         st.error(f"Błąd łączenia z arkuszem: {e}")
-        return [], pd.DataFrame(), [], pd.DataFrame()
+        return [], []
 
 def append_to_gsheets(worksheet_name, row_data):
     client = get_gsheets_client()
@@ -42,7 +69,7 @@ def append_to_gsheets(worksheet_name, row_data):
 
 # --- GENEROWANIE KODU QR ---
 def generate_security_qr(order_num, carrier, loading, unloading):
-    SECRET_SALT = "CMR2026!SekretneZabezpieczenie" 
+    SECRET_SALT = "CMR2026!ProEnterprise" 
     raw_data = f"{order_num}|{carrier}|{loading}|{unloading}|{SECRET_SALT}"
     secure_hash = hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
     
@@ -60,20 +87,18 @@ Zeskanowano w oficjalnym systemie."""
     qr.make_image(fill_color="black", back_color="white").save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue(), secure_hash
 
-# --- RYSOWANIE SIATKI CMR (PERFEKCYJNE ODWZOROWANIE Z NAPISAMI POBOCZNYMI) ---
+# --- RYSOWANIE MATEMATYCZNEJ SIATKI CMR ---
 def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.add_page()
     
-    # Funkcja pomocnicza do rysowania standardowych rubryk z podwójnym tekstem
     def draw_box(x, y, w, h, num, pl_text, en_text, content="", thick_border=False):
         if thick_border:
-            pdf.set_line_width(0.6) # Tłusta linia dla przewoźnika
+            pdf.set_line_width(0.6)
         else:
-            pdf.set_line_width(0.2) # Zwykła linia
+            pdf.set_line_width(0.2)
             
         pdf.rect(x, y, w, h)
-        
-        pdf.set_line_width(0.2) # Powrót do zwykłej grubości
+        pdf.set_line_width(0.2)
         
         if num:
             pdf.set_font("Roboto", "B", 7)
@@ -163,7 +188,7 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     draw_box(105, 75, 95, 15, "17", "Kolejni przewoźnicy (nazwisko lub nazwa, adres, kraj)", "Successive carriers", thick_border=True)
     draw_box(105, 90, 95, 25, "18", "Zastrzeżenia i uwagi przewoźnika", "Carrier's reservations and observations", thick_border=True)
 
-    # --- TABELA TOWARÓW (Rubryki 6-12) ---
+    # --- TABELA TOWARÓW ---
     y_t = 115
     pdf.set_line_width(0.2)
     pdf.rect(10, y_t, 190, 60)
@@ -218,6 +243,7 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
 
     draw_box(105, 175, 95, 15, "19", "Postanowienia specjalne", "Special agreements", thick_border=True)
     
+    # Tabela 20 (Do zapłacenia)
     pdf.set_line_width(0.6)
     pdf.rect(105, 190, 95, 30)
     pdf.set_line_width(0.2) 
@@ -253,7 +279,7 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
 
     draw_box(105, 220, 95, 15, "15", "Zapłata / Cash on delivery", "")
 
-    # --- PODPISY (DÓŁ) ---
+    # --- PODPISY ---
     draw_box(10, 235, 63, 30, "22", "Podpis i stempel nadawcy", "Signature and stamp of the sender", thick_border=True)
     draw_box(73, 235, 63, 30, "23", "Podpis i stempel przewoźnika", "Signature and stamp of the carrier", thick_border=True)
     
@@ -271,13 +297,12 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.set_xy(141, 260)
     pdf.cell(50, 3, txt="Podpis i stempel odbiorcy / Signature and stamp of the consignee")
 
-    # Stopka oficjalna IRU
+    # Stopka
     pdf.set_font("Roboto", "B", 5)
     pdf.set_xy(10, 266)
     pdf.cell(190, 3, txt="Wzór CMR/IRU/Polska z 1976 dla międzynarodowych przewozów drogowych odpowiada ustaleniom, które zostały dokonane przez Międzynarodową Unię Transportu Drogowego/IRU/.")
 
-
-# --- GŁÓWNA FUNKCJA BUDUJĄCA CAŁY PLIK PDF ---
+# --- KOMPILACJA CAŁEGO PDF ---
 def generate_pdf_package(data, qr_bytes):
     pdf = FPDF()
     font_reg = "Roboto-Regular.ttf"
@@ -290,7 +315,7 @@ def generate_pdf_package(data, qr_bytes):
     pdf.add_font("Roboto", "", font_reg)
     pdf.add_font("Roboto", "B", font_bold)
     
-    # === STRONA 1: ZLECENIE TRANSPORTOWE ===
+    # STRONA 1: ZLECENIE
     pdf.add_page()
     pdf.set_font("Roboto", "B", 16)
     pdf.cell(0, 10, txt=f"ZLECENIE TRANSPORTOWE NR: {data['Numer zlecenia']}", ln=True, align='C')
@@ -339,77 +364,108 @@ def generate_pdf_package(data, qr_bytes):
     pdf.cell(95, 5, txt="Pieczątka i podpis Zleceniodawcy", align='C')
     pdf.cell(95, 5, txt="Pieczątka i podpis Zleceniobiorcy", ln=True, align='C')
 
-    # === STRONY 2, 3, 4: OFICJALNE DRUKI CMR ===
+    # STRONY 2, 3, 4: CMR
     draw_cmr_page(pdf, data, qr_bytes, 1, "Egzemplarz dla nadawcy, Copy for sender, Exemplar für den Absender")
     draw_cmr_page(pdf, data, qr_bytes, 2, "Egzemplarz dla odbiorcy, Copy for consignee, Exemplar für den Empfänger")
     draw_cmr_page(pdf, data, qr_bytes, 3, "Egzemplarz dla przewoźnika, Copy for carrier, Copy für den Frachtführer")
 
     return bytes(pdf.output()) 
 
-# --- INTERFEJS APLIKACJI STREAMLIT ---
-st.set_page_config(layout="wide", page_title="Nowe Zlecenie")
-st.title("📝 Wystaw Nowe Zlecenie i CMR")
+# --- INTERFEJS PREMIUM (UI) ---
+st.title("📝 Formularz Nowego Zlecenia")
+st.markdown("<p style='color: #666; font-size: 1.1rem; margin-bottom: 2rem;'>Wypełnij poniższe dane, aby wygenerować profesjonalny pakiet dokumentów w formacie PDF.</p>", unsafe_allow_html=True)
 
-if st.button("🔄 Odśwież bazy z Google Sheets"):
-    st.cache_data.clear()
+lista_przewoznikow, lista_miejsc = load_data()
 
-lista_przewoznikow, df_przewoznicy, lista_miejsc, df_miejsca = load_data()
-
-with st.form("form"):
-    st.markdown("### Strony Dokumentów")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        nr_zlecenia = st.text_input("Numer zlecenia", f"ZLEC/{datetime.now().strftime('%Y/%m')}/")
-        zleceniodawca = st.text_area("Nadawca (Rubryka 1 CMR)", "Moja Firma Sp. z o.o.\nul. Testowa 1\n00-001 Warszawa\nNIP: 1234567890", height=100)
-    with col2:
-        wybrany_przewoznik = st.selectbox("Przewoźnik (Wybierz z bazy)", lista_przewoznikow)
-        pojazd_kierowca = st.text_input("Pojazd i Kierowca (Rubryka 16 CMR)", "Nr rej: ABC 12345 / Jan Kowalski")
-    with col3:
-        odbiorca = st.text_area("Odbiorca Towaru (Rubryka 2 CMR)", "Firma Docelowa S.A.\nul. Odbiorcza 2\n50-001 Wrocław\nNIP: 0987654321", height=100)
-        
-    st.markdown("---")
-    st.markdown("### Trasa i Ładunek")
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        adres_zaladunku = st.selectbox("Miejsce Załadunku (Rubryka 4)", lista_miejsc)
-        data_zaladunku = st.date_input("Data załadunku")
-    with col_t2:
-        adres_rozladunku = st.selectbox("Miejsce Rozładunku (Rubryka 3)", lista_miejsc)
-        data_rozladunku = st.date_input("Data rozładunku")
-        
-    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-    rodzaj_towaru = col_p1.text_input("Rodzaj towaru (Rubryka 9)", "Elektronika")
-    ilosc_opakowan = col_p2.text_input("Ilość opakowań (Rubryka 7)", "33")
-    rodzaj_opakowania = col_p3.selectbox("Rodzaj opakowania (Rubryka 8)", ["EUR-paleta", "Karton", "Sztuka", "IBC"])
-    waga = col_p4.text_input("Waga brutto w kg (Rubryka 11)", "24000")
+with st.form("form_zlecenie", border=False):
     
-    uwagi = st.text_area("Uwagi i Instrukcje dla kierowcy (Rubryka 13 CMR)")
+    # SEKCJA 1: STRONY TRANSAKCJI
+    with st.container(border=True):
+        st.markdown("#### 🏢 1. Dane Kontrahentów")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            nr_zlecenia = st.text_input("Numer referencyjny", f"ZLEC/{datetime.now().strftime('%Y/%m')}/", help="Zostanie wygenerowany na zleceniu oraz wpisany w prawym górnym rogu listu CMR.")
+            zleceniodawca = st.text_area("Nadawca (Zleceniodawca)", "Moja Firma Sp. z o.o.\nul. Testowa 1\n00-001 Warszawa\nNIP: 1234567890", height=90)
+        with col2:
+            wybrany_przewoznik = st.selectbox("Przewoźnik (Z bazy)", lista_przewoznikow, help="Jeśli firmy nie ma na liście, dodaj ją w module 'Baza Przewoźników'.")
+            pojazd_kierowca = st.text_input("Kierowca i Pojazd", "Nr rej: ABC 12345 / Jan Kowalski", help="Dane te trafią do rubryki 16 w dokumencie CMR.")
+        with col3:
+            odbiorca = st.text_area("Odbiorca Towaru (Miejsce Przeznaczenia)", "Firma Docelowa S.A.\nul. Odbiorcza 2\n50-001 Wrocław\nNIP: 0987654321", height=165)
+            
+    # SEKCJA 2: TRASA I DATY
+    with st.container(border=True):
+        st.markdown("#### 📍 2. Trasa i Harmonogram")
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            adres_zaladunku = st.selectbox("Miejsce Załadunku", lista_miejsc)
+            data_zaladunku = st.date_input("Data załadunku")
+        with col_t2:
+            adres_rozladunku = st.selectbox("Miejsce Rozładunku", lista_miejsc)
+            data_rozladunku = st.date_input("Data rozładunku")
+            
+    # SEKCJA 3: TOWAR
+    with st.container(border=True):
+        st.markdown("#### 📦 3. Szczegóły Ładunku")
+        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+        rodzaj_towaru = col_p1.text_input("Rodzaj towaru", "Elektronika", help="Opis trafi do rubryki 9 CMR.")
+        ilosc_opakowan = col_p2.text_input("Ilość", "33", help="Rubryka 7 CMR.")
+        rodzaj_opakowania = col_p3.selectbox("Opakowanie", ["EUR-paleta", "Karton", "Sztuka", "IBC"], help="Rubryka 8 CMR.")
+        waga = col_p4.text_input("Waga brutto (kg)", "24000", help="Rubryka 11 CMR.")
+        
+        uwagi = st.text_area("Zalecenia i Instrukcje Specjalne", placeholder="Wpisz tu np. wymagania dotyczące temperatury, awizacji itp. Trafi to do rubryki 13 CMR.", help="Instrukcje nadawcy wpisywane do listu przewozowego.")
 
-    submit = st.form_submit_button("Generuj Pakiet PDF (Zlecenie + 3x Oficjalne CMR)")
+    # PRZYCISK GŁÓWNY Z IKONĄ
+    st.markdown("<br>", unsafe_allow_html=True)
+    submit = st.form_submit_button("🚀 Generuj Dokumenty (Zlecenie + 3x Oficjalne CMR)")
 
 if submit:
-    qr_bytes, hash_qr = generate_security_qr(nr_zlecenia, wybrany_przewoznik, adres_zaladunku, adres_rozladunku)
-    
-    order_data = {
-        "Data wystawienia": datetime.now().strftime("%Y-%m-%d"),
-        "Numer zlecenia": nr_zlecenia, "Zleceniodawca": zleceniodawca, 
-        "Zleceniobiorca": wybrany_przewoznik, "Pojazd_Kierowca": pojazd_kierowca,
-        "Odbiorca": odbiorca, "Adres zaladunku": adres_zaladunku, 
-        "Adres rozladunku": adres_rozladunku, "Data zaladunku": str(data_zaladunku), 
-        "Data rozladunku": str(data_rozladunku), "Rodzaj towaru": rodzaj_towaru, 
-        "Ilosc opakowan": ilosc_opakowan, "Rodzaj opakowania": rodzaj_opakowania, 
-        "Waga brutto (kg)": waga, "Uwagi": uwagi
-    }
-    
-    with st.spinner('Rysowanie matematycznej siatki CMR i generowanie dokumentów...'):
+    if not wybrany_przewoznik:
+        st.error("Wybierz przewoźnika z listy przed wygenerowaniem dokumentu.")
+    else:
+        # Animowany pasek postępu (Premium UI)
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text("Generowanie kluczy kryptograficznych i kodu QR...")
+        qr_bytes, hash_qr = generate_security_qr(nr_zlecenia, wybrany_przewoznik, adres_zaladunku, adres_rozladunku)
+        progress_bar.progress(30)
+        
+        order_data = {
+            "Data wystawienia": datetime.now().strftime("%Y-%m-%d"),
+            "Numer zlecenia": nr_zlecenia, "Zleceniodawca": zleceniodawca, 
+            "Zleceniobiorca": wybrany_przewoznik, "Pojazd_Kierowca": pojazd_kierowca,
+            "Odbiorca": odbiorca, "Adres zaladunku": adres_zaladunku, 
+            "Adres rozladunku": adres_rozladunku, "Data zaladunku": str(data_zaladunku), 
+            "Data rozladunku": str(data_rozladunku), "Rodzaj towaru": rodzaj_towaru, 
+            "Ilosc opakowan": ilosc_opakowan, "Rodzaj opakowania": rodzaj_opakowania, 
+            "Waga brutto (kg)": waga, "Uwagi": uwagi
+        }
+        
+        status_text.text("Rysowanie wektorowej siatki CMR i kompilacja pliku PDF...")
         pdf_bytes = generate_pdf_package(order_data, qr_bytes)
-    
-    wiersz_historii = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), nr_zlecenia, zleceniodawca, wybrany_przewoznik, 
-        adres_zaladunku, adres_rozladunku, str(data_zaladunku), str(data_rozladunku),
-        rodzaj_towaru, ilosc_opakowan, rodzaj_opakowania, waga, pojazd_kierowca, uwagi, hash_qr
-    ]
-    append_to_gsheets("Zlecenia", wiersz_historii)
-    
-    st.success("Zapisano w bazie! Pobierz swój profesjonalny 4-stronicowy dokument poniżej.")
-    st.download_button("📄 Pobierz Pakiet Oficjalny (Zlecenie + 3x CMR)", pdf_bytes, f"Pakiet_CMR_{nr_zlecenia.replace('/', '_')}.pdf", "application/pdf")
+        progress_bar.progress(70)
+        
+        status_text.text("Synchronizacja z chmurą Google Sheets...")
+        wiersz_historii = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), nr_zlecenia, zleceniodawca, wybrany_przewoznik, 
+            adres_zaladunku, adres_rozladunku, str(data_zaladunku), str(data_rozladunku),
+            rodzaj_towaru, ilosc_opakowan, rodzaj_opakowania, waga, pojazd_kierowca, uwagi, hash_qr
+        ]
+        append_to_gsheets("Zlecenia", wiersz_historii)
+        progress_bar.progress(100)
+        
+        time.sleep(0.5)
+        status_text.empty()
+        progress_bar.empty()
+        
+        # Nowoczesne powiadomienie połączone z wyświetleniem pliku
+        st.toast('Zlecenie zostało poprawnie zarchiwizowane!', icon='✅')
+        
+        st.success("Dokumenty zostały pomyślnie wygenerowane. Plik PDF jest gotowy do pobrania.")
+        st.download_button(
+            label="📄 Pobierz Gotowy Pakiet (Zlecenie + CMR)", 
+            data=pdf_bytes, 
+            file_name=f"TMS_Zlecenie_{nr_zlecenia.replace('/', '_')}.pdf", 
+            mime="application/pdf",
+            type="primary"
+        )
