@@ -1,7 +1,8 @@
 streamlit
 pandas
 qrcode
-Pillow
-fpdf2
+fpdf
 gspread
 google-auth
+plotly
+Pillow
