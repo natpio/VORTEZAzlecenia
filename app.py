@@ -59,14 +59,21 @@ Zeskanowano w oficjalnym systemie."""
     qr.make_image(fill_color="black", back_color="white").save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue(), secure_hash
 
-# --- RYSOWANIE SIATKI CMR (PERFEKCYJNE ODWZOROWANIE) ---
+# --- RYSOWANIE SIATKI CMR (PERFEKCYJNE ODWZOROWANIE Z NAPISAMI POBOCZNYMI) ---
 def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.add_page()
-    pdf.set_line_width(0.2)
     
     # Funkcja pomocnicza do rysowania standardowych rubryk z podwójnym tekstem
-    def draw_box(x, y, w, h, num, pl_text, en_text, content="", content_b=""):
+    def draw_box(x, y, w, h, num, pl_text, en_text, content="", thick_border=False):
+        if thick_border:
+            pdf.set_line_width(0.6) # Tłusta linia dla przewoźnika
+        else:
+            pdf.set_line_width(0.2) # Zwykła linia
+            
         pdf.rect(x, y, w, h)
+        
+        pdf.set_line_width(0.2) # Powrót do zwykłej grubości na wypadek rysowania czegokolwiek innego
+        
         if num:
             pdf.set_font("Roboto", "B", 7)
             pdf.set_xy(x+1, y+1)
@@ -87,16 +94,35 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
             pdf.set_xy(x+2, y+8)
             pdf.multi_cell(w-4, 4, txt=content)
     
+    # --- PIONOWE NAPISY POBOCZNE ---
+    # Lewy margines (Tekst obrócony o 90 stopni, idący z dołu do góry)
+    with pdf.rotation(90, 7, 180):
+        pdf.set_font("Roboto", "B", 6)
+        pdf.text(7, 180, "Do wypełnienia pod odpowiedzialnością nadawcy 1-15 włącznie oraz")
+        pdf.set_font("Roboto", "", 5)
+        pdf.text(7, 183, "To be completed on sender's responsability including and")
+        pdf.set_font("Roboto", "B", 6)
+        pdf.text(7, 188, "19+21+22 Rubryki obwiedzione tłustymi liniami wypełnia przewoźnik.")
+        pdf.set_font("Roboto", "", 5)
+        pdf.text(7, 191, "The spaces framed with heavy lines must filied in by the carrier.")
+
+    # Prawy margines (Tekst obrócony o 270 / -90 stopni, idący z góry do dołu)
+    with pdf.rotation(270, 204, 30):
+        pdf.set_font("Roboto", "B", 5)
+        pdf.text(204, 30, "*W przypadku przewozu towarów niebezpiecznych, oprócz ewentualnego posiadania zaświadczenia, należy podać w ostatnim wierszu: klasę, liczbę oraz w danym przypadku literę.")
+        pdf.set_font("Roboto", "", 5)
+        pdf.text(204, 33, "*In case of dangerous goods mention, besides the possible certification, on the last line of the column the particulars of the class, the UN number and the packing group.")
+
     # --- NAGŁÓWEK ---
     pdf.set_font("Roboto", "B", 14)
     pdf.set_xy(10, 8)
     pdf.cell(5, 5, txt=str(copy_number))
     pdf.set_font("Roboto", "", 8)
     pdf.set_xy(15, 8)
-    pdf.cell(85, 4, txt=copy_title.split('/')[0].strip())
+    pdf.cell(85, 4, txt=copy_title.split(',')[0].strip())
     pdf.set_xy(15, 12)
-    if len(copy_title.split('/')) > 1:
-        pdf.cell(85, 4, txt=copy_title.split('/')[1].strip())
+    if len(copy_title.split(',')) > 1:
+        pdf.cell(85, 4, txt=copy_title.split(',')[1].strip())
     
     # Prawa strona nagłówka
     pdf.set_font("Roboto", "B", 9)
@@ -133,17 +159,18 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
         tmp_name = tmp.name
     pdf.image(tmp_name, x=75, y=98, w=15)
     os.remove(tmp_name)
-    pdf.set_font("Roboto", "", 6)
+    pdf.set_font("Roboto", "B", 6)
     pdf.set_xy(12, 105)
     pdf.cell(60, 4, txt="[x] Elektroniczny Certyfikat Zlecenia (Skanuj QR ->)")
 
-    # --- PRAWA KOLUMNA ---
-    draw_box(105, 40, 95, 35, "16", "Przewoźnik (nazwisko lub nazwa, adres, kraj)", "Carrier (name, address, country)", f"{data['Zleceniobiorca']}\n{data['Pojazd_Kierowca']}")
-    draw_box(105, 75, 95, 15, "17", "Kolejni przewoźnicy (nazwisko lub nazwa, adres, kraj)", "Successive carriers")
-    draw_box(105, 90, 95, 25, "18", "Zastrzeżenia i uwagi przewoźnika", "Carrier's reservations and observations")
+    # --- PRAWA KOLUMNA (TŁUSTE RAMKI DLA PRZEWOŹNIKA) ---
+    draw_box(105, 40, 95, 35, "16", "Przewoźnik (nazwisko lub nazwa, adres, kraj)", "Carrier (name, address, country)", f"{data['Zleceniobiorca']}\n{data['Pojazd_Kierowca']}", thick_border=True)
+    draw_box(105, 75, 95, 15, "17", "Kolejni przewoźnicy (nazwisko lub nazwa, adres, kraj)", "Successive carriers", thick_border=True)
+    draw_box(105, 90, 95, 25, "18", "Zastrzeżenia i uwagi przewoźnika", "Carrier's reservations and observations", thick_border=True)
 
     # --- TABELA TOWARÓW (Rubryki 6-12) ---
     y_t = 115
+    pdf.set_line_width(0.2)
     pdf.rect(10, y_t, 190, 60)
     # Pionowe linie tabeli
     pdf.line(30, y_t, 30, y_t+60)
@@ -171,14 +198,14 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.multi_cell(25, 3, txt="12 Objętość w m3\nVolume in m3", align='C')
 
     # Dane Towarowe
-    pdf.set_font("Roboto", "B", 9)
-    pdf.set_xy(30, y_t+15)
+    pdf.set_font("Roboto", "B", 10)
+    pdf.set_xy(30, y_t+20)
     pdf.cell(15, 5, txt=data['Ilosc opakowan'], align='C')
-    pdf.set_xy(45, y_t+15)
+    pdf.set_xy(45, y_t+20)
     pdf.cell(20, 5, txt=data['Rodzaj opakowania'], align='C')
-    pdf.set_xy(65, y_t+15)
+    pdf.set_xy(65, y_t+20)
     pdf.cell(65, 5, txt=data['Rodzaj towaru'], align='C')
-    pdf.set_xy(150, y_t+15)
+    pdf.set_xy(150, y_t+20)
     pdf.cell(25, 5, txt=data['Waga brutto (kg)'], align='C')
     
     # ADR linia (dół tabeli)
@@ -195,14 +222,17 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     draw_box(10, 175, 95, 35, "13", "Instrukcje nadawcy", "Sender's instructions", data['Uwagi'])
     draw_box(10, 210, 95, 10, "14", "Postanowienia odnośnie przewoźnego", "Instruction as to payment carriage")
     
-    # Wyciąganie samego miasta do rubryki 21
     miasto = data['Adres zaladunku'].split(',')[-1].strip() if ',' in data['Adres zaladunku'] else data['Adres zaladunku']
     draw_box(10, 220, 95, 15, "21", "Wystawiono w", "Established in", f"{miasto} , dnia: {data['Data wystawienia']}")
 
-    draw_box(105, 175, 95, 15, "19", "Postanowienia specjalne", "Special agreements")
+    # Tłusta ramka dla 19
+    draw_box(105, 175, 95, 15, "19", "Postanowienia specjalne", "Special agreements", thick_border=True)
     
-    # Rysowanie tabeli 20 (Do zapłacenia)
+    # Rysowanie tabeli 20 (Do zapłacenia) - Tłusta ramka
+    pdf.set_line_width(0.6)
     pdf.rect(105, 190, 95, 30)
+    pdf.set_line_width(0.2) # powrót do normalnej dla linii wewnetrznych
+    
     pdf.set_font("Roboto", "B", 7)
     pdf.set_xy(106, 191)
     pdf.cell(4, 3, txt="20")
@@ -214,7 +244,6 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.line(135, 190, 135, 220)
     pdf.line(155, 190, 155, 220)
     pdf.line(170, 190, 170, 220)
-    # Wiersze tabeli 20
     y_row = 195
     for i in range(6):
         pdf.line(105, y_row, 200, y_row)
@@ -227,7 +256,6 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.set_xy(170, 191)
     pdf.cell(30, 3, txt="Odbiorca / Consignee", align='C')
     
-    # Napisy wierszy
     labels = ["Przewoźne", "Bonifikaty", "Saldo", "Dopłaty", "Koszty dodatkowe", "Razem"]
     y_row = 196
     for lbl in labels:
@@ -238,10 +266,12 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     draw_box(105, 220, 95, 15, "15", "Zapłata / Cash on delivery", "")
 
     # --- PODPISY (DÓŁ) ---
-    draw_box(10, 235, 63, 30, "22", "Podpis i stempel nadawcy", "Signature and stamp of the sender")
-    draw_box(73, 235, 63, 30, "23", "Podpis i stempel przewoźnika", "Signature and stamp of the carrier")
+    draw_box(10, 235, 63, 30, "22", "Podpis i stempel nadawcy", "Signature and stamp of the sender", thick_border=True) # Zgodnie z pionowym tekstem 22 jest w tłustej
+    draw_box(73, 235, 63, 30, "23", "Podpis i stempel przewoźnika", "Signature and stamp of the carrier", thick_border=True)
     
+    pdf.set_line_width(0.6)
     pdf.rect(136, 235, 64, 30)
+    pdf.set_line_width(0.2)
     pdf.set_font("Roboto", "B", 7)
     pdf.set_xy(137, 236)
     pdf.cell(4, 3, txt="24")
@@ -253,10 +283,10 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.set_xy(141, 260)
     pdf.cell(50, 3, txt="Podpis i stempel odbiorcy / Signature and stamp of the consignee")
 
-    # Stopka
-    pdf.set_font("Roboto", "", 5)
+    # Stopka oficjalna IRU
+    pdf.set_font("Roboto", "B", 5)
     pdf.set_xy(10, 266)
-    pdf.cell(190, 3, txt="Wzór CMR dla międzynarodowych przewozów drogowych odpowiada ustaleniom, które zostały dokonane przez Międzynarodową Unię Transportu Drogowego (IRU).")
+    pdf.cell(190, 3, txt="Wzór CMR/IRU/Polska z 1976 dla międzynarodowych przewozów drogowych odpowiada ustaleniom, które zostały dokonane przez Międzynarodową Unię Transportu Drogowego/IRU/.")
 
 
 # --- GŁÓWNA FUNKCJA BUDUJĄCA CAŁY PLIK PDF ---
@@ -323,9 +353,9 @@ def generate_pdf_package(data, qr_bytes):
     pdf.cell(95, 5, txt="Pieczątka i podpis Zleceniobiorcy", ln=True, align='C')
 
     # === STRONY 2, 3, 4: OFICJALNE DRUKI CMR ===
-    draw_cmr_page(pdf, data, qr_bytes, 1, "Egzemplarz dla nadawcy / Copy for sender")
-    draw_cmr_page(pdf, data, qr_bytes, 2, "Egzemplarz dla odbiorcy / Copy for consignee")
-    draw_cmr_page(pdf, data, qr_bytes, 3, "Egzemplarz dla przewoźnika / Copy for carrier")
+    draw_cmr_page(pdf, data, qr_bytes, 1, "Egzemplarz dla nadawcy, Copy for sender, Exemplar für den Absender")
+    draw_cmr_page(pdf, data, qr_bytes, 2, "Egzemplarz dla odbiorcy, Copy for consignee, Exemplar für den Empfänger")
+    draw_cmr_page(pdf, data, qr_bytes, 3, "Egzemplarz dla przewoźnika, Copy for carrier, Copy für den Frachtführer")
 
     return bytes(pdf.output()) 
 
