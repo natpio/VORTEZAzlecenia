@@ -50,7 +50,7 @@ Zlec: {order_num}
 Przewoznik: {carrier[:20]}...
 Trasa: {loading[:15]} -> {unloading[:15]}
 SHA-256: {secure_hash}
-Zeskanowano w systemie weryfikacyjnym."""
+Zeskanowano w oficjalnym systemie."""
 
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(qr_payload)
@@ -59,190 +59,210 @@ Zeskanowano w systemie weryfikacyjnym."""
     qr.make_image(fill_color="black", back_color="white").save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue(), secure_hash
 
-# --- RYSOWANIE SIATKI CMR ---
-def draw_cmr_page(pdf, data, qr_bytes, copy_title):
+# --- RYSOWANIE SIATKI CMR (PERFEKCYJNE ODWZOROWANIE) ---
+def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.add_page()
     pdf.set_line_width(0.2)
     
-    # Nagłówek CMR
-    pdf.set_font("Roboto", "B", 12)
-    pdf.set_xy(105, 8)
-    pdf.cell(95, 5, txt="MIĘDZYNARODOWY SAMOCHODOWY LIST PRZEWOZOWY", align='L')
-    pdf.set_xy(105, 12)
-    pdf.set_font("Roboto", "", 7)
-    pdf.cell(95, 5, txt="INTERNATIONAL CONSIGNMENT NOTE   CMR", align='L')
-
-    pdf.set_xy(10, 8)
-    pdf.set_font("Roboto", "B", 10)
-    pdf.cell(90, 5, txt=copy_title, align='C')
-
-    # Box 1
-    pdf.rect(10, 20, 95, 25)
-    pdf.set_xy(11, 21)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="1 Nadawca (nazwisko lub nazwa, adres, kraj)\nSender (name, address, country)")
-    pdf.set_xy(11, 28)
-    pdf.set_font("Roboto", "B", 9)
-    pdf.multi_cell(93, 4, txt=data['Zleceniodawca'])
-
-    # Box 2
-    pdf.rect(10, 45, 95, 25)
-    pdf.set_xy(11, 46)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="2 Odbiorca (nazwisko lub nazwa, adres, kraj)\nConsignee (name, address, country)")
-    pdf.set_xy(11, 53)
-    pdf.set_font("Roboto", "B", 9)
-    pdf.multi_cell(93, 4, txt=data['Odbiorca'])
-
-    # Box 3
-    pdf.rect(10, 70, 95, 15)
-    pdf.set_xy(11, 71)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="3 Miejsce przeznaczenia (miejscowość, kraj)\nPlace of delivery of the goods (place, country)")
-    pdf.set_xy(11, 77)
-    pdf.set_font("Roboto", "B", 9)
-    pdf.multi_cell(93, 4, txt=data['Adres rozladunku'])
-
-    # Box 4
-    pdf.rect(10, 85, 95, 15)
-    pdf.set_xy(11, 86)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="4 Miejsce i data załadowania (miejscowość, kraj, data)\nPlace and date of taking over the goods")
-    pdf.set_xy(11, 92)
-    pdf.set_font("Roboto", "B", 9)
-    pdf.multi_cell(93, 4, txt=f"{data['Adres zaladunku']} / {data['Data zaladunku']}")
-
-    # Box 5
-    pdf.rect(10, 100, 95, 15)
-    pdf.set_xy(11, 101)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="5 Załączone dokumenty\nDocuments attached")
-
-    # Box 16
-    pdf.rect(105, 20, 95, 25)
-    pdf.set_xy(106, 21)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="16 Przewoźnik (nazwisko lub nazwa, adres, kraj)\nCarrier (name, address, country)")
-    pdf.set_xy(106, 28)
-    pdf.set_font("Roboto", "B", 9)
-    pelny_przewoznik = f"{data['Zleceniobiorca']}\n{data['Pojazd_Kierowca']}"
-    pdf.multi_cell(93, 4, txt=pelny_przewoznik)
-
-    # Box 17
-    pdf.rect(105, 45, 95, 15)
-    pdf.set_xy(106, 46)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="17 Kolejni przewoźnicy (nazwisko lub nazwa, adres, kraj)\nSuccessive carriers")
-
-    # Box 18
-    pdf.rect(105, 60, 95, 25)
-    pdf.set_xy(106, 61)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="18 Zastrzeżenia i uwagi przewoźnika\nCarrier's reservations and observations")
-
-    # Box 13
-    pdf.rect(105, 85, 95, 30)
-    pdf.set_xy(106, 86)
-    pdf.set_font("Roboto", "", 6)
-    pdf.multi_cell(93, 3, txt="13 Instrukcje nadawcy\nSender's instructions")
-    pdf.set_xy(106, 93)
-    pdf.set_font("Roboto", "B", 8)
-    pdf.multi_cell(93, 4, txt=data['Uwagi'])
-
-    # Tabela towarów (6 do 12)
-    y_tbl = 115
-    pdf.rect(10, y_tbl, 190, 45)
-    pdf.line(30, y_tbl, 30, y_tbl+45)
-    pdf.line(50, y_tbl, 50, y_tbl+45)
-    pdf.line(75, y_tbl, 75, y_tbl+45)
-    pdf.line(140, y_tbl, 140, y_tbl+45)
-    pdf.line(165, y_tbl, 165, y_tbl+45)
-    pdf.line(185, y_tbl, 185, y_tbl+45)
-
-    pdf.set_font("Roboto", "", 6)
-    pdf.set_xy(10, y_tbl)
-    pdf.multi_cell(20, 3, txt="6 Cechy i numery\nMarks and Nos", align='C')
-    pdf.set_xy(30, y_tbl)
-    pdf.multi_cell(20, 3, txt="7 Ilość sztuk\nNumber of packages", align='C')
-    pdf.set_xy(50, y_tbl)
-    pdf.multi_cell(25, 3, txt="8 Sposób opakowania\nMethod of packing", align='C')
-    pdf.set_xy(75, y_tbl)
-    pdf.multi_cell(65, 3, txt="9 Rodzaj towaru\nNature of the goods", align='C')
-    pdf.set_xy(140, y_tbl)
-    pdf.multi_cell(25, 3, txt="10 Nr statystyczny\nStatistical number", align='C')
-    pdf.set_xy(165, y_tbl)
-    pdf.multi_cell(20, 3, txt="11 Waga brutto (kg)\nGross weight", align='C')
-    pdf.set_xy(185, y_tbl)
-    pdf.multi_cell(15, 3, txt="12 Objętość (m3)\nVolume", align='C')
-
-    pdf.set_font("Roboto", "B", 9)
-    pdf.set_xy(30, y_tbl+10)
-    pdf.cell(20, 5, txt=data['Ilosc opakowan'], align='C')
-    pdf.set_xy(50, y_tbl+10)
-    pdf.cell(25, 5, txt=data['Rodzaj opakowania'], align='C')
-    pdf.set_xy(75, y_tbl+10)
-    pdf.cell(65, 5, txt=data['Rodzaj towaru'], align='C')
-    pdf.set_xy(165, y_tbl+10)
-    pdf.cell(20, 5, txt=data['Waga brutto (kg)'], align='C')
-
-    # Box 14, 15, 21
-    y_bot = 160
-    pdf.rect(10, y_bot, 95, 15)
-    pdf.set_font("Roboto", "", 6)
-    pdf.set_xy(11, y_bot+1)
-    pdf.multi_cell(93, 3, txt="14 Postanowienia odnośnie przewoźnego / Instruction as to payment carriage")
+    # Funkcja pomocnicza do rysowania standardowych rubryk z podwójnym tekstem
+    def draw_box(x, y, w, h, num, pl_text, en_text, content="", content_b=""):
+        pdf.rect(x, y, w, h)
+        if num:
+            pdf.set_font("Roboto", "B", 7)
+            pdf.set_xy(x+1, y+1)
+            pdf.cell(4, 3, txt=str(num))
+            tx = x + 5
+        else:
+            tx = x + 1
+            
+        pdf.set_font("Roboto", "", 5)
+        pdf.set_xy(tx, y+1)
+        pdf.cell(w-(tx-x), 3, txt=pl_text)
+        if en_text:
+            pdf.set_xy(tx, y+4)
+            pdf.cell(w-(tx-x), 3, txt=en_text)
+            
+        if content:
+            pdf.set_font("Roboto", "B", 8)
+            pdf.set_xy(x+2, y+8)
+            pdf.multi_cell(w-4, 4, txt=content)
     
-    pdf.rect(10, y_bot+15, 95, 10)
-    pdf.set_xy(11, y_bot+16)
-    pdf.multi_cell(93, 3, txt="15 Zapłata / Cash on delivery")
-
-    pdf.rect(10, y_bot+25, 95, 15)
-    pdf.set_xy(11, y_bot+26)
-    pdf.multi_cell(93, 3, txt="21 Wystawiono w / Established in")
-    pdf.set_xy(11, y_bot+31)
+    # --- NAGŁÓWEK ---
+    pdf.set_font("Roboto", "B", 14)
+    pdf.set_xy(10, 8)
+    pdf.cell(5, 5, txt=str(copy_number))
+    pdf.set_font("Roboto", "", 8)
+    pdf.set_xy(15, 8)
+    pdf.cell(85, 4, txt=copy_title.split('/')[0].strip())
+    pdf.set_xy(15, 12)
+    if len(copy_title.split('/')) > 1:
+        pdf.cell(85, 4, txt=copy_title.split('/')[1].strip())
+    
+    # Prawa strona nagłówka
     pdf.set_font("Roboto", "B", 9)
-    pdf.multi_cell(93, 4, txt=f"{data['Adres zaladunku'].split(',')[-1].strip()} , dnia: {data['Data wystawienia']}")
+    pdf.set_xy(105, 8)
+    pdf.cell(95, 4, txt="MIĘDZYNARODOWY SAMOCHODOWY LIST PRZEWOZOWY")
+    pdf.set_font("Roboto", "", 7)
+    pdf.set_xy(105, 12)
+    pdf.cell(95, 4, txt="INTERNATIONAL CONSIGNMENT NOTE")
+    
+    # Znaczek CMR i Numer
+    pdf.set_font("Roboto", "B", 12)
+    pdf.set_xy(140, 20)
+    pdf.cell(15, 6, txt="CMR", border=1, align='C')
+    pdf.set_font("Roboto", "B", 14)
+    pdf.set_xy(160, 20)
+    pdf.cell(35, 6, txt=f"No. {data['Numer zlecenia'].replace('ZLEC/', '')}")
+    
+    # Tekst Konwencji
+    pdf.set_font("Roboto", "", 5)
+    pdf.set_xy(105, 27)
+    pdf.multi_cell(95, 2.5, txt="Niniejszy przewóz podlega postanowieniom konwencji o umowie międzynarodowej przewozu drogowego towarów (CMR) bez względu na jakąkolwiek przeciwną klauzulę. / This carriage is subject, notwithstanding any clause to the contrary, to the Convention on the Contract for the international Carriage of goods by road (CMR).")
 
-    # Box 19, 20
-    pdf.rect(105, y_bot, 95, 15)
-    pdf.set_font("Roboto", "", 6)
-    pdf.set_xy(106, y_bot+1)
-    pdf.multi_cell(93, 3, txt="19 Postanowienia specjalne / Special agreements")
+    # --- LEWA KOLUMNA ---
+    draw_box(10, 15, 95, 25, "1", "Nadawca (nazwisko lub nazwa, adres, kraj)", "Sender (name, address, country)", data['Zleceniodawca'])
+    draw_box(10, 40, 95, 25, "2", "Odbiorca (nazwisko lub nazwa, adres, kraj)", "Consignee (name, address, country)", data['Odbiorca'])
+    draw_box(10, 65, 95, 15, "3", "Miejsce przeznaczenia (miejscowość, kraj)", "Place of delivery of the goods (place, country)", data['Adres rozladunku'])
+    draw_box(10, 80, 95, 15, "4", "Miejsce i data załadowania (miejscowość, kraj, data)", "Place and date of taking over the goods", f"{data['Adres zaladunku']}\nData: {data['Data zaladunku']}")
+    draw_box(10, 95, 95, 20, "5", "Załączone dokumenty", "Documents attached")
 
-    pdf.rect(105, y_bot+15, 95, 25)
-    pdf.set_xy(106, y_bot+16)
-    pdf.multi_cell(93, 3, txt="20 Do zapłacenia / To be paid by")
-
-    # Signatures
-    y_sig = 200
-    pdf.rect(10, y_sig, 63, 30)
-    pdf.set_xy(11, y_sig+1)
-    pdf.multi_cell(61, 3, txt="22 Podpis i stempel nadawcy\nSignature and stamp of the sender")
-
-    pdf.rect(73, y_sig, 63, 30)
-    pdf.set_xy(74, y_sig+1)
-    pdf.multi_cell(61, 3, txt="23 Podpis i stempel przewoźnika\nSignature and stamp of the carrier")
-
-    pdf.rect(136, y_sig, 64, 30)
-    pdf.set_xy(137, y_sig+1)
-    pdf.multi_cell(62, 3, txt="24 Podpis i stempel odbiorcy\nSignature and stamp of the consignee")
-
-    # Wklejenie bezpiecznego kodu QR w Box 22
+    # Wklejenie kodu QR do Rubryki 5 (Załączone dokumenty)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         tmp.write(qr_bytes)
         tmp.flush()
         tmp_name = tmp.name
-    pdf.image(tmp_name, x=25, y=y_sig+8, w=20)
+    pdf.image(tmp_name, x=75, y=98, w=15)
     os.remove(tmp_name)
+    pdf.set_font("Roboto", "", 6)
+    pdf.set_xy(12, 105)
+    pdf.cell(60, 4, txt="[x] Elektroniczny Certyfikat Zlecenia (Skanuj QR ->)")
+
+    # --- PRAWA KOLUMNA ---
+    draw_box(105, 40, 95, 35, "16", "Przewoźnik (nazwisko lub nazwa, adres, kraj)", "Carrier (name, address, country)", f"{data['Zleceniobiorca']}\n{data['Pojazd_Kierowca']}")
+    draw_box(105, 75, 95, 15, "17", "Kolejni przewoźnicy (nazwisko lub nazwa, adres, kraj)", "Successive carriers")
+    draw_box(105, 90, 95, 25, "18", "Zastrzeżenia i uwagi przewoźnika", "Carrier's reservations and observations")
+
+    # --- TABELA TOWARÓW (Rubryki 6-12) ---
+    y_t = 115
+    pdf.rect(10, y_t, 190, 60)
+    # Pionowe linie tabeli
+    pdf.line(30, y_t, 30, y_t+60)
+    pdf.line(45, y_t, 45, y_t+60)
+    pdf.line(65, y_t, 65, y_t+60)
+    pdf.line(130, y_t, 130, y_t+60)
+    pdf.line(150, y_t, 150, y_t+60)
+    pdf.line(175, y_t, 175, y_t+60)
+    
+    # Nagłówki kolumn towarów
+    pdf.set_font("Roboto", "B", 6)
+    pdf.set_xy(10, y_t)
+    pdf.multi_cell(20, 3, txt="6 Cechy i numery\nMarks and Nos", align='C')
+    pdf.set_xy(30, y_t)
+    pdf.multi_cell(15, 3, txt="7 Ilość sztuk\nNumber of pkgs", align='C')
+    pdf.set_xy(45, y_t)
+    pdf.multi_cell(20, 3, txt="8 Opakowanie\nMethod of packing", align='C')
+    pdf.set_xy(65, y_t)
+    pdf.multi_cell(65, 3, txt="9 Rodzaj towaru\nNature of the goods", align='C')
+    pdf.set_xy(130, y_t)
+    pdf.multi_cell(20, 3, txt="10 Nr statystyczny\nStatistical number", align='C')
+    pdf.set_xy(150, y_t)
+    pdf.multi_cell(25, 3, txt="11 Waga brutto w kg\nGross weight in kg", align='C')
+    pdf.set_xy(175, y_t)
+    pdf.multi_cell(25, 3, txt="12 Objętość w m3\nVolume in m3", align='C')
+
+    # Dane Towarowe
+    pdf.set_font("Roboto", "B", 9)
+    pdf.set_xy(30, y_t+15)
+    pdf.cell(15, 5, txt=data['Ilosc opakowan'], align='C')
+    pdf.set_xy(45, y_t+15)
+    pdf.cell(20, 5, txt=data['Rodzaj opakowania'], align='C')
+    pdf.set_xy(65, y_t+15)
+    pdf.cell(65, 5, txt=data['Rodzaj towaru'], align='C')
+    pdf.set_xy(150, y_t+15)
+    pdf.cell(25, 5, txt=data['Waga brutto (kg)'], align='C')
+    
+    # ADR linia (dół tabeli)
+    pdf.line(10, y_t+50, 130, y_t+50)
+    pdf.set_font("Roboto", "", 6)
+    pdf.set_xy(11, y_t+51)
+    pdf.cell(20, 3, txt="Klasa / Class")
+    pdf.set_xy(46, y_t+51)
+    pdf.cell(20, 3, txt="Nr UN / Number")
+    pdf.set_xy(90, y_t+51)
+    pdf.cell(20, 3, txt="PG (ADR)")
+
+    # --- DOLNA SEKCJA ---
+    draw_box(10, 175, 95, 35, "13", "Instrukcje nadawcy", "Sender's instructions", data['Uwagi'])
+    draw_box(10, 210, 95, 10, "14", "Postanowienia odnośnie przewoźnego", "Instruction as to payment carriage")
+    
+    # Wyciąganie samego miasta do rubryki 21
+    miasto = data['Adres zaladunku'].split(',')[-1].strip() if ',' in data['Adres zaladunku'] else data['Adres zaladunku']
+    draw_box(10, 220, 95, 15, "21", "Wystawiono w", "Established in", f"{miasto} , dnia: {data['Data wystawienia']}")
+
+    draw_box(105, 175, 95, 15, "19", "Postanowienia specjalne", "Special agreements")
+    
+    # Rysowanie tabeli 20 (Do zapłacenia)
+    pdf.rect(105, 190, 95, 30)
+    pdf.set_font("Roboto", "B", 7)
+    pdf.set_xy(106, 191)
+    pdf.cell(4, 3, txt="20")
+    pdf.set_font("Roboto", "", 5)
+    pdf.set_xy(110, 191)
+    pdf.cell(20, 3, txt="Do zapłacenia\nTo be paid by")
+    
+    # Linie tabeli 20
+    pdf.line(135, 190, 135, 220)
+    pdf.line(155, 190, 155, 220)
+    pdf.line(170, 190, 170, 220)
+    # Wiersze tabeli 20
+    y_row = 195
+    for i in range(6):
+        pdf.line(105, y_row, 200, y_row)
+        y_row += 4.1
+        
+    pdf.set_xy(135, 191)
+    pdf.cell(20, 3, txt="Nadawca / Sender", align='C')
+    pdf.set_xy(155, 191)
+    pdf.cell(15, 3, txt="Waluta", align='C')
+    pdf.set_xy(170, 191)
+    pdf.cell(30, 3, txt="Odbiorca / Consignee", align='C')
+    
+    # Napisy wierszy
+    labels = ["Przewoźne", "Bonifikaty", "Saldo", "Dopłaty", "Koszty dodatkowe", "Razem"]
+    y_row = 196
+    for lbl in labels:
+        pdf.set_xy(106, y_row)
+        pdf.cell(25, 3, txt=lbl)
+        y_row += 4.1
+
+    draw_box(105, 220, 95, 15, "15", "Zapłata / Cash on delivery", "")
+
+    # --- PODPISY (DÓŁ) ---
+    draw_box(10, 235, 63, 30, "22", "Podpis i stempel nadawcy", "Signature and stamp of the sender")
+    draw_box(73, 235, 63, 30, "23", "Podpis i stempel przewoźnika", "Signature and stamp of the carrier")
+    
+    pdf.rect(136, 235, 64, 30)
+    pdf.set_font("Roboto", "B", 7)
+    pdf.set_xy(137, 236)
+    pdf.cell(4, 3, txt="24")
+    pdf.set_font("Roboto", "", 5)
+    pdf.set_xy(141, 236)
+    pdf.cell(50, 3, txt="Przesyłkę otrzymano / Goods received")
+    pdf.set_xy(141, 240)
+    pdf.cell(50, 3, txt="Miejscowość / Place ............................... dnia / on .............")
+    pdf.set_xy(141, 260)
+    pdf.cell(50, 3, txt="Podpis i stempel odbiorcy / Signature and stamp of the consignee")
 
     # Stopka
-    pdf.set_xy(10, 232)
     pdf.set_font("Roboto", "", 5)
-    pdf.multi_cell(190, 2, txt="Wzór CMR dla międzynarodowych przewozów drogowych odpowiada ustaleniom, które zostały dokonane przez Międzynarodową Unię Transportu Drogowego (IRU).")
+    pdf.set_xy(10, 266)
+    pdf.cell(190, 3, txt="Wzór CMR dla międzynarodowych przewozów drogowych odpowiada ustaleniom, które zostały dokonane przez Międzynarodową Unię Transportu Drogowego (IRU).")
 
-# --- GENEROWANIE PACZKI PDF ---
+
+# --- GŁÓWNA FUNKCJA BUDUJĄCA CAŁY PLIK PDF ---
 def generate_pdf_package(data, qr_bytes):
     pdf = FPDF()
+    # Pobieranie czcionek z obsługą PL znaków
     font_reg = "Roboto-Regular.ttf"
     font_bold = "Roboto-Bold.ttf"
     if not os.path.exists(font_reg):
@@ -253,7 +273,7 @@ def generate_pdf_package(data, qr_bytes):
     pdf.add_font("Roboto", "", font_reg)
     pdf.add_font("Roboto", "B", font_bold)
     
-    # === STRONA 1: ZLECENIE ===
+    # === STRONA 1: ZLECENIE TRANSPORTOWE ===
     pdf.add_page()
     pdf.set_font("Roboto", "B", 16)
     pdf.cell(0, 10, txt=f"ZLECENIE TRANSPORTOWE NR: {data['Numer zlecenia']}", ln=True, align='C')
@@ -301,24 +321,17 @@ def generate_pdf_package(data, qr_bytes):
     pdf.set_font("Roboto", "", 8)
     pdf.cell(95, 5, txt="Pieczątka i podpis Zleceniodawcy", align='C')
     pdf.cell(95, 5, txt="Pieczątka i podpis Zleceniobiorcy", ln=True, align='C')
-    
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        tmp.write(qr_bytes)
-        tmp.flush()
-        tmp_name = tmp.name
-    pdf.image(tmp_name, x=90, y=200, w=30)
-    os.remove(tmp_name)
 
-    # === STRONY 2, 3, 4: ORYGINALNE DRUKI CMR ===
-    draw_cmr_page(pdf, data, qr_bytes, "1 Egzemplarz dla nadawcy / Copy for sender")
-    draw_cmr_page(pdf, data, qr_bytes, "2 Egzemplarz dla odbiorcy / Copy for consignee")
-    draw_cmr_page(pdf, data, qr_bytes, "3 Egzemplarz dla przewoźnika / Copy for carrier")
+    # === STRONY 2, 3, 4: OFICJALNE DRUKI CMR ===
+    draw_cmr_page(pdf, data, qr_bytes, 1, "Egzemplarz dla nadawcy / Copy for sender")
+    draw_cmr_page(pdf, data, qr_bytes, 2, "Egzemplarz dla odbiorcy / Copy for consignee")
+    draw_cmr_page(pdf, data, qr_bytes, 3, "Egzemplarz dla przewoźnika / Copy for carrier")
 
     return bytes(pdf.output()) 
 
-# --- INTERFEJS ---
-st.set_page_config(layout="wide", page_title="System Zleceń")
-st.title("Wystawianie Zleceń i CMR")
+# --- INTERFEJS APLIKACJI STREAMLIT ---
+st.set_page_config(layout="wide", page_title="System Zleceń i CMR")
+st.title("Oficjalne Zlecenia i Dokumenty CMR")
 
 if st.button("🔄 Odśwież bazy z Google Sheets"):
     st.cache_data.clear()
@@ -330,32 +343,32 @@ with st.form("form"):
     col1, col2, col3 = st.columns(3)
     with col1:
         nr_zlecenia = st.text_input("Numer zlecenia", f"ZLEC/{datetime.now().strftime('%Y/%m')}/")
-        zleceniodawca = st.text_area("Nadawca / Zleceniodawca", "Moja Firma Sp. z o.o.\nul. Testowa 1\n00-001 Warszawa\nNIP: 1234567890", height=100)
+        zleceniodawca = st.text_area("Nadawca (Rubryka 1 CMR)", "Moja Firma Sp. z o.o.\nul. Testowa 1\n00-001 Warszawa\nNIP: 1234567890", height=100)
     with col2:
-        wybrany_przewoznik = st.selectbox("Przewoźnik (Wybierz)", lista_przewoznikow)
-        pojazd_kierowca = st.text_input("Pojazd i Kierowca (do rubryki 16)", "Nr rej: ABC 12345 / Jan Kowalski")
+        wybrany_przewoznik = st.selectbox("Przewoźnik (Wybierz z bazy)", lista_przewoznikow)
+        pojazd_kierowca = st.text_input("Pojazd i Kierowca (Rubryka 16 CMR)", "Nr rej: ABC 12345 / Jan Kowalski")
     with col3:
-        odbiorca = st.text_area("Odbiorca Towaru (Rubryka 2)", "Firma Docelowa S.A.\nul. Odbiorcza 2\n50-001 Wrocław\nNIP: 0987654321", height=100)
+        odbiorca = st.text_area("Odbiorca Towaru (Rubryka 2 CMR)", "Firma Docelowa S.A.\nul. Odbiorcza 2\n50-001 Wrocław\nNIP: 0987654321", height=100)
         
     st.markdown("---")
     st.markdown("### Trasa i Ładunek")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
-        adres_zaladunku = st.selectbox("Miejsce Załadunku", lista_miejsc)
+        adres_zaladunku = st.selectbox("Miejsce Załadunku (Rubryka 4)", lista_miejsc)
         data_zaladunku = st.date_input("Data załadunku")
     with col_t2:
-        adres_rozladunku = st.selectbox("Miejsce Rozładunku", lista_miejsc)
+        adres_rozladunku = st.selectbox("Miejsce Rozładunku (Rubryka 3)", lista_miejsc)
         data_rozladunku = st.date_input("Data rozładunku")
         
     col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-    rodzaj_towaru = col_p1.text_input("Rodzaj towaru", "Elektronika")
-    ilosc_opakowan = col_p2.text_input("Ilość opakowań", "33")
-    rodzaj_opakowania = col_p3.selectbox("Rodzaj opakowania", ["EUR-paleta", "Karton", "Sztuka"])
-    waga = col_p4.text_input("Waga brutto (kg)", "24000")
+    rodzaj_towaru = col_p1.text_input("Rodzaj towaru (Rubryka 9)", "Elektronika")
+    ilosc_opakowan = col_p2.text_input("Ilość opakowań (Rubryka 7)", "33")
+    rodzaj_opakowania = col_p3.selectbox("Rodzaj opakowania (Rubryka 8)", ["EUR-paleta", "Karton", "Sztuka", "IBC"])
+    waga = col_p4.text_input("Waga brutto w kg (Rubryka 11)", "24000")
     
     uwagi = st.text_area("Uwagi i Instrukcje dla kierowcy (Rubryka 13 CMR)")
 
-    submit = st.form_submit_button("Generuj Pakiet PDF (Zlecenie + 3x CMR)")
+    submit = st.form_submit_button("Generuj Pakiet PDF (Zlecenie + 3x Oficjalne CMR)")
 
 if submit:
     qr_bytes, hash_qr = generate_security_qr(nr_zlecenia, wybrany_przewoznik, adres_zaladunku, adres_rozladunku)
@@ -371,7 +384,7 @@ if submit:
         "Waga brutto (kg)": waga, "Uwagi": uwagi
     }
     
-    with st.spinner('Tworzenie siatki CMR i generowanie dokumentów...'):
+    with st.spinner('Rysowanie matematycznej siatki CMR i generowanie dokumentów...'):
         pdf_bytes = generate_pdf_package(order_data, qr_bytes)
     
     wiersz_historii = [
@@ -381,5 +394,5 @@ if submit:
     ]
     append_to_gsheets("Zlecenia", wiersz_historii)
     
-    st.success("Zapisano w bazie! Pobierz swój 4-stronicowy dokument poniżej.")
-    st.download_button("📄 Pobierz Pakiet (Zlecenie + 3x CMR)", pdf_bytes, f"Zlecenie_CMR_{nr_zlecenia.replace('/', '_')}.pdf", "application/pdf")
+    st.success("Zapisano w bazie! Pobierz swój profesjonalny 4-stronicowy dokument poniżej.")
+    st.download_button("📄 Pobierz Pakiet Oficjalny (Zlecenie + 3x CMR)", pdf_bytes, f"Pakiet_CMR_{nr_zlecenia.replace('/', '_')}.pdf", "application/pdf")
