@@ -7,21 +7,24 @@ import io
 from fpdf import FPDF
 import gspread
 from google.oauth2.service_account import Credentials
+import tempfile
+import urllib.request
+import os
 
 # --- KONFIGURACJA ---
-# Używamy bezpośredniego linku do Twojego arkusza zamiast samej nazwy
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
+    """Autoryzacja w Google Sheets na podstawie st.secrets z poprawnym certyfikatem"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=600)
 def load_data():
+    """Pobieranie list przewoźników i miejsc do list rozwijanych"""
     try:
         client = get_gsheets_client()
-        # Łączenie po twardym linku URL (niezawodne)
         spreadsheet = client.open_by_url(SHEET_URL)
         
         ws_przewoznicy = spreadsheet.worksheet("Zleceniobiorcy")
@@ -38,10 +41,12 @@ def load_data():
         return [], pd.DataFrame(), [], pd.DataFrame()
 
 def append_to_gsheets(worksheet_name, row_data):
+    """Dopisywanie nowego wiersza (np. do historii Zleceń)"""
     client = get_gsheets_client()
     client.open_by_url(SHEET_URL).worksheet(worksheet_name).append_row(row_data)
 
 def generate_security_qr(order_num, carrier, loading, unloading):
+    """Generuje kod QR i bezpieczny Hash do zapobiegania podrabianiu CMR"""
     SECRET_SALT = "CMR2026!SekretneZabezpieczenie" 
     raw_data = f"{order_num}|{carrier}|{loading}|{unloading}|{SECRET_SALT}"
     secure_hash = hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
@@ -54,14 +59,25 @@ def generate_security_qr(order_num, carrier, loading, unloading):
     return img_byte_arr.getvalue(), secure_hash[:16]
 
 def generate_pdf(data, qr_bytes):
+    """Generowanie ostatecznego dokumentu PDF z użyciem pobranej czcionki Roboto (obsługa PL znaków)"""
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Helvetica", size=10)
+    
+    # --- AUTOMATYCZNE POBIERANIE CZCIONKI Z POLSKIMI ZNAKAMI ---
+    font_path = "Roboto-Regular.ttf"
+    if not os.path.exists(font_path):
+        url = "https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf"
+        urllib.request.urlretrieve(url, font_path)
+        
+    pdf.add_font("Roboto", "", font_path)
+    pdf.set_font("Roboto", size=10)
     
     # Nagłówek Zlecenia
-    pdf.set_font("Helvetica", style="B", size=14)
+    pdf.set_font("Roboto", size=14)
     pdf.cell(200, 10, txt=f"ZLECENIE TRANSPORTOWE NR: {data['Numer zlecenia']}", ln=True, align='C')
-    pdf.set_font("Helvetica", size=10)
+    
+    # Powrót do mniejszej czcionki
+    pdf.set_font("Roboto", size=10)
     pdf.ln(5)
     
     pdf.cell(200, 8, txt=f"Zleceniodawca: {data['Zleceniodawca']}", ln=True)
@@ -73,9 +89,9 @@ def generate_pdf(data, qr_bytes):
     
     # Szkic CMR
     pdf.ln(15)
-    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.set_font("Roboto", size=12)
     pdf.cell(200, 10, txt="--- SZKIC DOKUMENTU CMR ---", ln=True, align='C')
-    pdf.set_font("Helvetica", size=10)
+    pdf.set_font("Roboto", size=10)
     
     # Tabela 2 kolumny dla CMR
     pdf.cell(95, 20, txt=f"1. Nadawca: {data['Zleceniodawca']}", border=1)
@@ -84,14 +100,14 @@ def generate_pdf(data, qr_bytes):
     pdf.cell(95, 20, txt=f"3. Przeznaczenie: {data['Adres rozladunku']}", border=1)
     pdf.cell(95, 20, txt=f"4. Miejsce zaladowania: {data['Adres zaladunku']}", border=1, ln=True)
     
-    import tempfile
+    # Kod QR na dokumencie
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         tmp.write(qr_bytes)
         pdf.image(tmp.name, x=160, y=10, w=30)
         
-    return pdf.output(dest='S').encode('latin-1')
+    return bytes(pdf.output()) 
 
-# --- INTERFEJS ---
+# --- INTERFEJS UŻYTKOWNIKA ---
 st.set_page_config(layout="wide", page_title="Zlecenia Transportowe")
 st.title("Wystawianie Zleceń i CMR")
 
@@ -127,9 +143,10 @@ with st.form("form"):
     submit = st.form_submit_button("Generuj PDF i Zapisz do Historii")
 
 if submit:
+    # 1. Kod QR
     qr_bytes, hash_qr = generate_security_qr(nr_zlecenia, wybrany_przewoznik, adres_zaladunku, adres_rozladunku)
     
-    # Zapis do Historii w Arkuszu
+    # 2. Zapis do Historii w Arkuszu
     wiersz_historii = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), nr_zlecenia, zleceniodawca, wybrany_przewoznik, 
         adres_zaladunku, adres_rozladunku, str(data_zaladunku), str(data_rozladunku),
@@ -138,6 +155,7 @@ if submit:
     append_to_gsheets("Zlecenia", wiersz_historii)
     st.success("Sukces! Zlecenie zostało zapisane w Google Sheets.")
 
+    # 3. Zbieranie danych dla PDF
     order_data = {
         "Numer zlecenia": nr_zlecenia, "Zleceniodawca": zleceniodawca, "Zleceniobiorca": wybrany_przewoznik,
         "Adres zaladunku": adres_zaladunku, "Adres rozladunku": adres_rozladunku, 
@@ -146,5 +164,6 @@ if submit:
         "Rodzaj opakowania": rodzaj_opakowania, "Waga brutto (kg)": waga
     }
     
+    # 4. Generowanie i pobieranie PDF
     pdf_bytes = generate_pdf(order_data, qr_bytes)
     st.download_button("📄 Pobierz Gotowe Zlecenie (PDF)", pdf_bytes, f"Zlecenie_{nr_zlecenia.replace('/', '_')}.pdf", "application/pdf")
