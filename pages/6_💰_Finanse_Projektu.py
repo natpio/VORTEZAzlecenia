@@ -13,12 +13,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ---> NAPRAWIONY PASEK BOCZNY (Z poprawionym linkiem do pliku nr 5) <---
 with st.sidebar:
     st.markdown("<h2 style='color: #10b981;'>📦 ZAOPATRZENIE</h2>", unsafe_allow_html=True)
     st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
     st.divider()
-    st.page_link("pages/5_📦_Kreator_Zaopatrzenia.py", label="Kreator Zaopatrzenia")
-    st.page_link("pages/6_💰_Finanse_Projektu.py", label="Finanse Projektów (Koszty)")
+    st.page_link("pages/5_📦_Zgloszenie_Zaopatrzenia.py", label="Zgłoś transport")
+    st.page_link("pages/6_💰_Finanse_Projektu.py", label="Koszty Projektów")
     st.page_link("pages/7_🏢_Baza_Kontrahentow.py", label="Baza Kontrahentów / Miejsc")
 
 # --- KONFIGURACJA BAZY DANYCH ---
@@ -69,7 +70,7 @@ if wyszukiwane_id:
             st.success(f"**EVENT / LOKALIZACJA:** {nazwa_eventu} | **PROJEKT ID:** {wyszukiwane_id}")
             
             # 2. Filtrowanie Zleceń TYLKO dla tego projektu
-            df_zlecenia_projektu = df_zlecenia[df_zlecenia['ID Projektu'].astype(str) == str(wyszukiwane_id)]
+            df_zlecenia_projektu = df_zlecenia[df_zlecenia['ID Projektu'].astype(str) == str(wyszukiwane_id)].copy()
             
             if not df_zlecenia_projektu.empty:
                 # Oczyszczenie formatu kwot (zamiana błędnych na 0)
@@ -86,7 +87,7 @@ if wyszukiwane_id:
                 # 3. Wyświetlanie Metryk
                 st.markdown("### 📊 Podsumowanie Kosztów Projektu")
                 k1, k2, k3 = st.columns(3)
-                k1.metric("Suma Kosztów Zaopatrzenia", f"{calkowity_koszt:,.2f} PLN/EUR")
+                k1.metric("Suma Kosztów Zaopatrzenia", f"{calkowity_koszt:,.2f} PLN")
                 k2.metric("📦 Ściągnięcie (Inbound)", f"{koszt_inbound:,.2f}")
                 k3.metric("🔄 Zwroty (Outbound)", f"{koszt_zwrotow:,.2f}")
                 
