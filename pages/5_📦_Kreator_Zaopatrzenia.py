@@ -1,102 +1,73 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- KONFIGURACJA ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
+st.set_page_config(layout="wide", page_title="Kreator Zaopatrzenia")
 
+# --- MENU BOCZNE (TYLKO ZAOPATRZENIE) ---
+st.markdown("""<style>[data-testid="stSidebarNav"] {display: none !important;}</style>""", unsafe_allow_html=True)
+with st.sidebar:
+    st.markdown("### 📦 ZAOPATRZENIE")
+    st.page_link("app.py", label="⬅ Wróć do Głównego Menu")
+    st.divider()
+    st.page_link("pages/5_📦_Kreator_Zaopatrzenia.py", label="Kreator Zaopatrzenia")
+    st.page_link("pages/6_💰_Finanse_Projektu.py", label="Finanse Projektów")
+    st.page_link("pages/7_🏢_Baza_Kontrahentow.py", label="Baza Kontrahentów")
+
+# --- LOGIKA BAZY ---
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 def get_gsheets_client():
-    """Autoryzacja w Google Sheets na podstawie st.secrets"""
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=60)
-def load_zlecenia_history():
-    """Pobiera historię wystawionych zleceń z bazy"""
-    try:
-        client = get_gsheets_client()
-        spreadsheet = client.open_by_url(SHEET_URL)
-        ws_zlecenia = spreadsheet.worksheet("Zlecenia")
-        df_zlecenia = pd.DataFrame(ws_zlecenia.get_all_records())
-        return df_zlecenia
-    except Exception as e:
-        st.error(f"Błąd łączenia z arkuszem Zleceń: {e}")
-        return pd.DataFrame()
+@st.cache_data(ttl=10)
+def load_data():
+    sh = get_gsheets_client().open_by_url(SHEET_URL)
+    return pd.DataFrame(sh.worksheet("Zlecenia").get_all_records()), pd.DataFrame(sh.worksheet("Miejsca").get_all_records())
 
-# --- INTERFEJS APLIKACJI ---
-st.set_page_config(layout="wide", page_title="Historia Zleceń V2")
-st.title("📊 Historia Zleceń i Projektów")
-st.markdown("Archiwum wszystkich dokumentów. Zaktualizowano o widok ID Projektu i kosztów.")
+df_z, df_m = load_data()
 
-col_btn, col_empty = st.columns([1, 4])
-with col_btn:
-    if st.button("🔄 Odśwież bazę z Google Sheets"):
-        st.cache_data.clear()
-        st.rerun()
+st.title("📦 Kreator Zaopatrzenia")
 
-st.markdown("---")
+tab1, tab2 = st.tabs(["➕ Nowe Zgłoszenie", "💰 Wycena i Zatwierdzenie"])
 
-df_zlecenia = load_zlecenia_history()
+with tab1:
+    st.subheader("Zgłoszenie od Zaopatrzeniowca")
+    with st.form("form_zaop"):
+        id_p = st.text_input("ID Projektu (5 cyfr)")
+        kontrahent = st.selectbox("Od kogo odbieramy?", df_m['Nazwa do listy'].tolist() if not df_m.empty else [])
+        co_to = st.text_area("Opis sprzętu / Co jest do odebrania?")
+        data_gotowosci = st.date_input("Kiedy sprzęt będzie gotowy?")
+        
+        if st.form_submit_button("Wyślij zapotrzebowanie"):
+            nowy = [datetime.now().strftime("%Y-%m-%d %H:%M"), f"REQ/{id_p}/{datetime.now().strftime('%H%M')}", "ZAOPATRZENIE", "", kontrahent, "MAGAZYN", str(data_gotowosci), "", "Wypożyczenie", "", "", "", "", co_to, "", id_p, "ZAOP_DO_WYCENY", 0]
+            get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zlecenia").append_row(nowy)
+            st.success("Zgłoszenie trafiło do kolejki logistyka.")
 
-if not df_zlecenia.empty:
-    # --- BEZPIECZEŃSTWO WSTECZNE (Dla starych zleceń) ---
-    if 'ID Projektu' not in df_zlecenia.columns:
-        df_zlecenia['ID Projektu'] = "Brak"
-    if 'Typ transportu' not in df_zlecenia.columns:
-        df_zlecenia['Typ transportu'] = "Brak"
-    if 'Stawka' not in df_zlecenia.columns:
-        df_zlecenia['Stawka'] = 0
-
-    # --- STATYSTYKI ---
-    st.markdown("### 📈 Podsumowanie")
-    liczba_zlecen = len(df_zlecenia)
+with tab2:
+    st.subheader("Kolejka wycen (Logistyk)")
+    oczekujace = df_z[df_z['Typ transportu'] == "ZAOP_DO_WYCENY"]
     
-    # Odwracamy DataFrame, żeby najnowsze zlecenia były na samej górze
-    df_zlecenia = df_zlecenia.iloc[::-1].reset_index(drop=True)
-    
-    ostatnie_zlecenie = df_zlecenia.iloc[0]['Numer zlecenia'] if 'Numer zlecenia' in df_zlecenia.columns else "Brak"
-    ostatnia_data = df_zlecenia.iloc[0]['Data wystawienia'] if 'Data wystawienia' in df_zlecenia.columns else "Brak"
-
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric(label="Całkowita liczba zleceń", value=liczba_zlecen)
-    kpi2.metric(label="Ostatni wygenerowany numer", value=ostatnie_zlecenie)
-    kpi3.metric(label="Data ostatniego zlecenia", value=ostatnia_data)
-
-    st.markdown("---")
-
-    # --- WYSZUKIWARKA / FILTROWANIE ---
-    st.markdown("### 🔎 Wyszukaj w archiwum")
-    wyszukiwana_fraza = st.text_input("Wpisz ID Projektu, numer zlecenia lub przewoźnika:", "")
-
-    if wyszukiwana_fraza:
-        mask = df_zlecenia.apply(lambda row: row.astype(str).str.contains(wyszukiwana_fraza, case=False, na=False).any(), axis=1)
-        df_wyswietlane = df_zlecenia[mask]
-        st.success(f"Znaleziono wyników: {len(df_wyswietlane)}")
+    if not oczekujace.empty:
+        for _, row in oczekujace.iterrows():
+            with st.expander(f"Projekt {row['ID Projektu']} - {row['Miejsce Zaladunku']}"):
+                with st.form(f"wycena_{row['Numer zlecenia']}"):
+                    c1, c2 = st.columns(2)
+                    stawka = c1.number_input("Koszt", min_value=0)
+                    przewoznik = c2.text_input("Przewoźnik (np. Kurier/Własny)")
+                    dane_auta = st.text_input("Dane kierowcy / Nr auta")
+                    typ = st.radio("Kierunek:", ["Inbound (Przywóz)", "Zwrot (Odesłanie)"])
+                    
+                    if st.form_submit_button("Zatwierdź koszt i transport"):
+                        ws = get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zlecenia")
+                        cell = ws.find(row['Numer zlecenia'])
+                        ws.update_cell(cell.row, 4, przewoznik)
+                        ws.update_cell(cell.row, 14, f"{row['Uwagi / Instrukcje']} | AUTO: {dane_auta}")
+                        ws.update_cell(cell.row, 17, typ)
+                        ws.update_cell(cell.row, 18, stawka)
+                        st.success("Zlecenie rozliczone!")
+                        st.rerun()
     else:
-        df_wyswietlane = df_zlecenia
-
-    # --- REORGANIZACJA KOLUMN ---
-    # Układamy kolumny tak, by ID projektu i koszty były zaraz po numerze zlecenia
-    kolumny_startowe = ['Data wystawienia', 'Numer zlecenia', 'ID Projektu', 'Typ transportu', 'Stawka', 'Zleceniobiorca', 'Miejsce Zaladunku', 'Miejsce Rozladunku']
-    
-    # Pobieramy resztę kolumn, które nie są w kolumnach startowych
-    wszystkie_kolumny = df_wyswietlane.columns.tolist()
-    pozostale_kolumny = [kol for kol in wszystkie_kolumny if kol not in kolumny_startowe]
-    
-    # Łączymy w nową, czytelną listę
-    nowa_kolejnosc = kolumny_startowe + pozostale_kolumny
-    
-    df_wyswietlane = df_wyswietlane[nowa_kolejnosc]
-
-    # --- TABELA DANYCH ---
-    st.dataframe(
-        df_wyswietlane,
-        use_container_width=True,
-        hide_index=True,
-        height=600
-    )
-
-else:
-    st.info("Baza zleceń jest pusta.")
+        st.info("Brak nowych zgłoszeń do wyceny.")
