@@ -83,7 +83,8 @@ def generate_transport_order_pdf(data):
     pdf.cell(95, 8, "ZLECENIOBIORCA (PRZEWOZNIK):", border=1, ln=True)
     
     pdf.set_font("Roboto", "", 10)
-    pdf.multi_cell(95, 6, "VORTEX NEXUS LOGISTICS\nul. Magazynowa 10, 62-052 Komorniki\nKontakt: Logistyka Zaopatrzenia", border=1, align='L', max_line_height=6)
+    # POPRAWKA: Usunięto parametr max_line_height=6, który wywalał błąd na Streamlit
+    pdf.multi_cell(95, 6, "VORTEX NEXUS LOGISTICS\nul. Magazynowa 10, 62-052 Komorniki\nKontakt: Logistyka Zaopatrzenia", border=1, align='L')
     
     # Wracamy na górę dla drugiej kolumny (Trick we FPDF)
     y_before = pdf.get_y() - 18
