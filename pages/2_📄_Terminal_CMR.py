@@ -21,11 +21,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ---> ZAKTUALIZOWANY PASEK BOCZNY (Z nowym panelem obsługi zaopatrzenia) <---
 with st.sidebar:
     st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
     st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
     st.divider()
     st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
+    st.page_link("pages/8_🛠️_Obsluga_Zaopatrzenia.py", label="Obsługa Zaopatrzenia")
     st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
     st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
     st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
@@ -55,7 +57,6 @@ def load_cargo_orders():
 # --- LOGIKA GENEROWANIA KODU QR ---
 def generate_security_qr(order_num, carrier, loading, unloading):
     SECRET_SALT = "CMR2026!VortexCargo" 
-    # Bezpieczne formatowanie stringów, zapobiega błędom jeśli wartość to NaN/None
     raw_data = f"{order_num}|{carrier}|{loading}|{unloading}|{SECRET_SALT}"
     secure_hash = hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
     qr_payload = f"--- VORTEX CARGO SECURITY ---\nRef: {order_num}\nPrzewoznik: {str(carrier)[:25]}\nTrasa: {loading} -> {unloading}\nSHA: {secure_hash}"
@@ -141,7 +142,6 @@ def generate_full_cmr(data, qr_bytes):
     for num, title in copies:
         draw_cmr_page(pdf, data, qr_bytes, num, title)
         
-    # KRYTYCZNA ZMIANA TUTAJ:
     return pdf.output(dest='S').encode('latin-1')
 
 # --- INTERFEJS TERMINALA ---
@@ -154,7 +154,6 @@ if not df_orders.empty:
     with st.container(border=True):
         col_sel, col_info = st.columns([1, 2])
         
-        # Filtrujemy tylko te zlecenia, które mają nadany 'Numer zlecenia'
         lista_numerow = [str(nr) for nr in df_orders['Numer zlecenia'].tolist() if pd.notna(nr)][::-1]
         
         if lista_numerow:
@@ -162,7 +161,6 @@ if not df_orders.empty:
             
             row = df_orders[df_orders['Numer zlecenia'].astype(str) == wybrany_nr].iloc[0]
             
-            # Bezpieczne wyświetlanie informacji
             miejsce_zal = row.get('Miejsce Zaladunku', 'Brak')
             miejsce_roz = row.get('Miejsce Rozladunku', 'Brak')
             zleceniobiorca = row.get('Zleceniobiorca', 'Brak')
@@ -175,7 +173,6 @@ if not df_orders.empty:
                 with st.spinner("Przetwarzanie dokumentu i generowanie skrótów SHA-256..."):
                     qr_bytes = generate_security_qr(row.get('Numer zlecenia', ''), zleceniobiorca, miejsce_zal, miejsce_roz)
                     
-                    # KULOODPORNE MAPOWANIE DANYCH
                     uwagi = str(row.get('Uwagi / Instrukcje', ''))
                     kierowca_auto = uwagi.split("||")[1].strip() if "||" in uwagi else ""
                     
