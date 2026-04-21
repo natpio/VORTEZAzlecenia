@@ -18,6 +18,7 @@ with st.sidebar:
     st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
     st.divider()
     st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
+    st.page_link("pages/8_🛠️_Obsluga_Zaopatrzenia.py", label="Obsługa Zaopatrzenia")
     st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
     st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
     st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
@@ -36,20 +37,14 @@ def load_przewoznicy():
     try:
         client = get_gsheets_client()
         spreadsheet = client.open_by_url(SHEET_URL)
-        ws = spreadsheet.worksheet("Zleceniobiorcy")
-        return pd.DataFrame(ws.get_all_records())
+        return pd.DataFrame(spreadsheet.worksheet("Zleceniobiorcy").get_all_records())
     except Exception as e:
         st.error(f"Błąd łączenia z arkuszem Zleceniobiorcy: {e}")
         return pd.DataFrame()
 
-def append_przewoznik(row_data):
-    """Dopisuje nowy wiersz do bazy przewoźników"""
-    client = get_gsheets_client()
-    client.open_by_url(SHEET_URL).worksheet("Zleceniobiorcy").append_row(row_data)
-
 # --- INTERFEJS APLIKACJI ---
 st.title("🚚 Zarządzanie Bazą Przewoźników Cargo")
-st.markdown("Słownik głównych firm transportowych obsługujących wyjazdy na eventy. Firmy dodane tutaj będą dostępne w Dyspozycji Floty oraz Terminalu CMR.")
+st.markdown("Słownik głównych firm transportowych obsługujących wyjazdy na eventy. Firmy dodane tutaj będą dostępne w Dyspozycji Floty.")
 
 col_btn, col_empty = st.columns([1, 4])
 with col_btn:
@@ -81,7 +76,7 @@ with st.expander("➕ KLIKNIJ TUTAJ, ABY DODAĆ NOWEGO PRZEWOŹNIKA", expanded=F
                 with st.spinner("Zapisywanie do chmury..."):
                     # Kolejność zapisu odpowiada domyślnym kolumnom w Twoim arkuszu "Zleceniobiorcy"
                     nowy_wiersz = [skrot, pelna_nazwa, ulica, miasto, kraj, nip, pojazd]
-                    append_przewoznik(nowy_wiersz)
+                    get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zleceniobiorcy").append_row(nowy_wiersz)
                     st.cache_data.clear() 
                     st.success(f"Sukces! Dodano firmę '{skrot}' do bazy.")
                     st.rerun()
