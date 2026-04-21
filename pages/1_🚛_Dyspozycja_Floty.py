@@ -58,8 +58,17 @@ st.markdown("Planowanie transportów naczepowych na wydarzenia. System automatyc
 
 # Ładowanie słowników
 df_przewoznicy, df_projekty = load_przewoznicy_i_projekty()
-lista_przewoznikow = df_przewoznicy['Skrócona Nazwa'].tolist() if not df_przewoznicy.empty else ["Brak danych"]
-lista_eventow = df_projekty['Nazwa Eventu'].tolist() if not df_projekty.empty else ["Brak danych"]
+
+# ZABEZPIECZENIE: Sprawdzamy czy kolumny fizycznie istnieją, żeby uniknąć błędu KeyError
+if not df_przewoznicy.empty and 'Skrócona Nazwa' in df_przewoznicy.columns:
+    lista_przewoznikow = df_przewoznicy['Skrócona Nazwa'].tolist()
+else:
+    lista_przewoznikow = ["Brak kolumny 'Skrócona Nazwa' w arkuszu Zleceniobiorcy!"]
+
+if not df_projekty.empty and 'Nazwa Eventu' in df_projekty.columns:
+    lista_eventow = df_projekty['Nazwa Eventu'].tolist()
+else:
+    lista_eventow = ["Brak kolumny 'Nazwa Eventu' w arkuszu Projekty!"]
 
 # --- FORMULARZ DYSPOZYCJI ---
 with st.form("form_cargo_fleet"):
@@ -99,11 +108,13 @@ with st.form("form_cargo_fleet"):
     submit_cargo = st.form_submit_button("Zatwierdź i Wyślij Dyspozycję do Bazy", type="primary", use_container_width=True)
     
     if submit_cargo:
-        if event_nazwa and przewoznik:
+        if "Brak kolumny" in event_nazwa or "Brak kolumny" in przewoznik:
+            st.error("Nie możesz zapisać zlecenia, dopóki nie naprawisz nagłówków w Google Sheets!")
+        elif event_nazwa and przewoznik:
             # Generowanie numeru zlecenia
             nr_zlecenia = f"CRG/{datetime.now().strftime('%m%H%M')}"
             
-            # Formatowanie rozszerzonych uwag (zawierających cały cykl dat)
+            # Formatowanie rozszerzonych uwag
             harmonogram_str = (
                 f"CYKL TARGOWY: Zal. PL: {data_zaladunek_pl} | "
                 f"Roz. EU: {data_rozladunek_eu} | "
@@ -113,7 +124,7 @@ with st.form("form_cargo_fleet"):
             
             pelne_uwagi = f"{uwagi} \n\nAUTO: {dane_auta} | TABOR: {rodzaj_naczepy} \n{harmonogram_str}"
             
-            # Przygotowanie wiersza zgodnie ze strukturą Zlecenia (18 kolumn)
+            # Przygotowanie wiersza
             nowy_wiersz = [
                 datetime.now().strftime("%Y-%m-%d %H:%M"), # A: Data wystawienia
                 nr_zlecenia,                                # B: Numer zlecenia
@@ -124,11 +135,11 @@ with st.form("form_cargo_fleet"):
                 str(data_zaladunek_pl),                    # G: Data załadunku
                 str(data_rozladunek_pl),                   # H: Data rozładunku (finalna)
                 "Elementy Zabudowy Targowej",              # I: Rodzaj towaru
-                "", "", "", "",                            # J, K, L, M: Dane CMR (puste)
+                "", "", "", "",                            # J, K, L, M: Dane CMR
                 pelne_uwagi,                               # N: Uwagi
-                "",                                        # O: Hash (puste)
-                event_nazwa,                               # P: ID Projektu (Nazwa Eventu)
-                "TARGI",                                   # Q: Typ transportu (Filtr Cargo)
+                "",                                        # O: Hash
+                event_nazwa,                               # P: ID Projektu
+                "TARGI",                                   # Q: Typ transportu
                 stawka                                     # R: Stawka
             ]
             
@@ -137,7 +148,6 @@ with st.form("form_cargo_fleet"):
                     append_to_zlecenia(nowy_wiersz)
                     st.success(f"Zlecenie {nr_zlecenia} zostało pomyślnie zarejestrowane!")
                     st.cache_data.clear()
-                    # Opcjonalnie: st.rerun()
                 except Exception as e:
                     st.error(f"Wystąpił błąd podczas zapisu: {e}")
         else:
