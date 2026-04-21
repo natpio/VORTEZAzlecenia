@@ -12,7 +12,7 @@ def get_gsheets_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
-# UWAGA: Usunięto @st.cache_data, aby wymusić świeże pobieranie za każdym razem!
+@st.cache_data(ttl=60)
 def load_data():
     client = get_gsheets_client()
     sh = client.open_by_url(SHEET_URL)
@@ -22,21 +22,19 @@ def load_data():
 
 # --- INTERFEJS ---
 st.markdown("<h1 style='text-align: center; color: #38bdf8;'>VORTEX FINANCIAL TRACKER</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #94a3b8;'>Panel kontroli kosztów i logistyki zwrotnej sprzętu eventowego</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 df_zlecenia, df_projekty = load_data()
-
-# --- TRYB DIAGNOSTYCZNY ---
-st.warning(f"**TRYB DIAGNOSTYCZNY:** Znalazłem następujące kolumny w zakładce Projekty: `{df_projekty.columns.tolist()}`")
 
 # WYSZUKIWARKA
 col_search, col_empty = st.columns([1, 2])
 wyszukiwane_id = col_search.text_input("🔍 Wpisz 5-cyfrowe ID Projektu:")
 
 if wyszukiwane_id:
-    # Zabezpieczenie przed błędem (KeyError)
+    # Zabezpieczenie przed pustym arkuszem Google
     if 'ID Projektu' not in df_projekty.columns:
-        st.error("🚨 Błąd bazy danych: Wciąż nie widzę kolumny 'ID Projektu'! Sprawdź żółty komunikat wyżej, aby zobaczyć, jak Streamlit widzi Twoje nagłówki z Google Sheets.")
+        st.error("🚨 Błąd bazy danych: Brak kolumny 'ID Projektu'. Upewnij się, że w arkuszu Google jest przynajmniej jeden wypełniony wiersz pod nagłówkami.")
     else:
         # 1. Sprawdzanie Projektu
         projekt_info = df_projekty[df_projekty['ID Projektu'].astype(str) == str(wyszukiwane_id)]
@@ -72,6 +70,6 @@ if wyszukiwane_id:
                 else:
                     st.info("Brak wystawionych zleceń dla tego projektu.")
             else:
-                st.info("Baza zleceń nie zawiera jeszcze kolumny z ID Projektu.")
+                st.info("Baza zleceń nie zawiera jeszcze powiązań z tym projektem.")
         else:
-            st.error("Nie znaleziono projektu w bazie.")
+            st.error("Nie znaleziono projektu o tym ID w bazie.")
