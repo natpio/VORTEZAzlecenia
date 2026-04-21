@@ -89,13 +89,13 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     pdf.set_font("Roboto", "B", 14); pdf.set_xy(10, 8); pdf.cell(5, 5, txt=str(copy_number))
     pdf.set_font("Roboto", "", 8); pdf.set_xy(15, 8); pdf.cell(85, 4, txt=copy_title)
     pdf.set_font("Roboto", "B", 12); pdf.set_xy(140, 10); pdf.cell(15, 6, txt="CMR", border=1, align='C')
-    pdf.set_font("Roboto", "B", 12); pdf.set_xy(160, 10); pdf.cell(40, 6, txt=f"No. {data['Numer zlecenia']}")
+    pdf.set_font("Roboto", "B", 12); pdf.set_xy(160, 10); pdf.cell(40, 6, txt=f"No. {data.get('Numer zlecenia', '')}")
 
     # Pola 1-5
-    draw_box(10, 15, 95, 25, "1", "Nadawca", "Sender", data['Zleceniodawca'])
-    draw_box(10, 40, 95, 25, "2", "Odbiorca", "Consignee", data['Odbiorca'])
-    draw_box(10, 65, 95, 15, "3", "Miejsce przeznaczenia", "Place of delivery", data['Adres rozladunku'])
-    draw_box(10, 80, 95, 15, "4", "Miejsce i data zaladowania", "Place and date of taking over", f"{data['Adres zaladunku']}\n{data['Data zaladunku']}")
+    draw_box(10, 15, 95, 25, "1", "Nadawca", "Sender", data.get('Zleceniodawca', ''))
+    draw_box(10, 40, 95, 25, "2", "Odbiorca", "Consignee", data.get('Odbiorca', ''))
+    draw_box(10, 65, 95, 15, "3", "Miejsce przeznaczenia", "Place of delivery", data.get('Adres rozladunku', ''))
+    draw_box(10, 80, 95, 15, "4", "Miejsce i data zaladowania", "Place and date of taking over", f"{data.get('Adres zaladunku', '')}\n{data.get('Data zaladunku', '')}")
     draw_box(10, 95, 95, 20, "5", "Zalaczone dokumenty", "Documents attached")
 
     # QR Code Security
@@ -105,16 +105,16 @@ def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
     os.remove(tmp_name)
 
     # Przewoźnik 16-18
-    draw_box(105, 40, 95, 35, "16", "Przewoznik", "Carrier", f"{data['Zleceniobiorca']}\n{data.get('Pojazd_Kierowca', '')}", thick_border=True)
+    draw_box(105, 40, 95, 35, "16", "Przewoznik", "Carrier", f"{data.get('Zleceniobiorca', '')}\n{data.get('Pojazd_Kierowca', '')}", thick_border=True)
     draw_box(105, 75, 95, 15, "17", "Kolejni przewoznicy", "Successive carriers", thick_border=True)
     draw_box(105, 90, 95, 25, "18", "Zastrzezenia przewoznika", "Carrier's reservations", thick_border=True)
 
     # Tabela towarowa (Pola 6-12)
     y_t = 115; pdf.rect(10, y_t, 190, 60)
     pdf.line(65, y_t, 65, y_t+60); pdf.set_font("Roboto", "B", 9)
-    pdf.set_xy(67, y_t+5); pdf.cell(60, 5, txt=f"TOWAR: {data['Rodzaj towaru']}")
-    pdf.set_xy(67, y_t+12); pdf.cell(60, 5, txt=f"ILOSC: {data['Ilosc opakowan']} {data['Rodzaj opakowania']}")
-    pdf.set_xy(150, y_t+5); pdf.cell(30, 5, txt=f"WAGA: {data['Waga brutto']} kg")
+    pdf.set_xy(67, y_t+5); pdf.cell(60, 5, txt=f"TOWAR: {data.get('Rodzaj towaru', '')}")
+    pdf.set_xy(67, y_t+12); pdf.cell(60, 5, txt=f"ILOSC: {data.get('Ilosc opakowan', '')} {data.get('Rodzaj opakowania', '')}")
+    pdf.set_xy(150, y_t+5); pdf.cell(30, 5, txt=f"WAGA: {data.get('Waga brutto', '')} kg")
 
     # Podpisy 22-24
     draw_box(10, 235, 63, 30, "22", "Podpis nadawcy", "Sender signature", thick_border=True)
@@ -140,7 +140,9 @@ def generate_full_cmr(data, qr_bytes):
     ]
     for num, title in copies:
         draw_cmr_page(pdf, data, qr_bytes, num, title)
-    return bytes(pdf.output())
+        
+    # KRYTYCZNA ZMIANA TUTAJ:
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- INTERFEJS TERMINALA ---
 st.title("📄 Terminal CMR - LOGISTYKA CARGO")
@@ -173,9 +175,7 @@ if not df_orders.empty:
                 with st.spinner("Przetwarzanie dokumentu i generowanie skrótów SHA-256..."):
                     qr_bytes = generate_security_qr(row.get('Numer zlecenia', ''), zleceniobiorca, miejsce_zal, miejsce_roz)
                     
-                    # -----------------------------------------------------
-                    # KULOODPORNE MAPOWANIE DANYCH (ZABEZPIECZENIE PRZED KEYERROR)
-                    # -----------------------------------------------------
+                    # KULOODPORNE MAPOWANIE DANYCH
                     uwagi = str(row.get('Uwagi / Instrukcje', ''))
                     kierowca_auto = uwagi.split("||")[1].strip() if "||" in uwagi else ""
                     
