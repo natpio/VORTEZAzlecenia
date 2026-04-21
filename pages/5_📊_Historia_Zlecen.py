@@ -26,20 +26,29 @@ def load_zlecenia_history():
         return pd.DataFrame()
 
 # --- INTERFEJS APLIKACJI ---
-st.set_page_config(layout="wide", page_title="Historia Zleceń")
-st.title("📊 Historia Wystawionych Zleceń i CMR")
-st.markdown("Archiwum wszystkich dokumentów wygenerowanych przez aplikację. Dane są synchronizowane z arkuszem Google Sheets.")
+st.set_page_config(layout="wide", page_title="Historia Zleceń V2")
+st.title("📊 Historia Zleceń i Projektów")
+st.markdown("Archiwum wszystkich dokumentów. Zaktualizowano o widok ID Projektu i kosztów.")
 
 col_btn, col_empty = st.columns([1, 4])
 with col_btn:
     if st.button("🔄 Odśwież bazę z Google Sheets"):
         st.cache_data.clear()
+        st.rerun()
 
 st.markdown("---")
 
 df_zlecenia = load_zlecenia_history()
 
 if not df_zlecenia.empty:
+    # --- BEZPIECZEŃSTWO WSTECZNE (Dla starych zleceń) ---
+    if 'ID Projektu' not in df_zlecenia.columns:
+        df_zlecenia['ID Projektu'] = "Brak"
+    if 'Typ transportu' not in df_zlecenia.columns:
+        df_zlecenia['Typ transportu'] = "Brak"
+    if 'Stawka' not in df_zlecenia.columns:
+        df_zlecenia['Stawka'] = 0
+
     # --- STATYSTYKI ---
     st.markdown("### 📈 Podsumowanie")
     liczba_zlecen = len(df_zlecenia)
@@ -59,15 +68,27 @@ if not df_zlecenia.empty:
 
     # --- WYSZUKIWARKA / FILTROWANIE ---
     st.markdown("### 🔎 Wyszukaj w archiwum")
-    wyszukiwana_fraza = st.text_input("Wpisz numer zlecenia, nazwę przewoźnika lub miejscowość, aby przefiltrować tabelę:", "")
+    wyszukiwana_fraza = st.text_input("Wpisz ID Projektu, numer zlecenia lub przewoźnika:", "")
 
     if wyszukiwana_fraza:
-        # Filtrowanie po wszystkich kolumnach (zamieniamy na tekst małą literą dla łatwego szukania)
         mask = df_zlecenia.apply(lambda row: row.astype(str).str.contains(wyszukiwana_fraza, case=False, na=False).any(), axis=1)
         df_wyswietlane = df_zlecenia[mask]
         st.success(f"Znaleziono wyników: {len(df_wyswietlane)}")
     else:
         df_wyswietlane = df_zlecenia
+
+    # --- REORGANIZACJA KOLUMN ---
+    # Układamy kolumny tak, by ID projektu i koszty były zaraz po numerze zlecenia
+    kolumny_startowe = ['Data wystawienia', 'Numer zlecenia', 'ID Projektu', 'Typ transportu', 'Stawka', 'Zleceniobiorca', 'Miejsce Zaladunku', 'Miejsce Rozladunku']
+    
+    # Pobieramy resztę kolumn, które nie są w kolumnach startowych
+    wszystkie_kolumny = df_wyswietlane.columns.tolist()
+    pozostale_kolumny = [kol for kol in wszystkie_kolumny if kol not in kolumny_startowe]
+    
+    # Łączymy w nową, czytelną listę
+    nowa_kolejnosc = kolumny_startowe + pozostale_kolumny
+    
+    df_wyswietlane = df_wyswietlane[nowa_kolejnosc]
 
     # --- TABELA DANYCH ---
     st.dataframe(
@@ -78,4 +99,4 @@ if not df_zlecenia.empty:
     )
 
 else:
-    st.info("Baza zleceń jest jeszcze pusta. Przejdź do modułu 'Nowe Zlecenie', aby wystawić swój pierwszy dokument!")
+    st.info("Baza zleceń jest pusta.")
