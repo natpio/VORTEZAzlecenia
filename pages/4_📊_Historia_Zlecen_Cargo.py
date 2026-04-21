@@ -3,7 +3,26 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- KONFIGURACJA ---
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(layout="wide", page_title="Historia Zleceń | Cargo")
+
+# --- UKRYCIE DOMYŚLNEGO MENU I DEDYKOWANY PASEK BOCZNY (CARGO) ---
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none !important;}
+    </style>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
+    st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
+    st.divider()
+    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
+    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
+    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
+    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
+
+# --- KONFIGURACJA BAZY DANYCH ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
@@ -11,63 +30,98 @@ def get_gsheets_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=60)
-def load_miejsca():
+@st.cache_data(ttl=30)
+def load_cargo_history():
+    """Pobiera zlecenia i filtruje TYLKO te dla Logistyki Cargo (TARGI)"""
     try:
         client = get_gsheets_client()
-        spreadsheet = client.open_by_url(SHEET_URL)
-        ws = spreadsheet.worksheet("Miejsca")
-        df = pd.DataFrame(ws.get_all_records())
-        return df
+        sh = client.open_by_url(SHEET_URL)
+        df = pd.DataFrame(sh.worksheet("Zlecenia").get_all_records())
+        
+        # Kluczowy filtr: Odcinamy Zaopatrzenie, zostawiamy tylko transport główny
+        if not df.empty and 'Typ transportu' in df.columns:
+            df_cargo = df[df['Typ transportu'] == "TARGI"]
+            return df_cargo
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Błąd łączenia z arkuszem Miejsca: {e}")
+        st.error(f"Błąd łączenia z arkuszem: {e}")
         return pd.DataFrame()
 
-def append_miejsce(row_data):
-    client = get_gsheets_client()
-    client.open_by_url(SHEET_URL).worksheet("Miejsca").append_row(row_data)
-
 # --- INTERFEJS APLIKACJI ---
-st.set_page_config(layout="wide", page_title="Baza Miejsc V2")
-st.title("🏢 Zarządzanie Bazą Kontrahentów i Miejsc")
-st.markdown("V2.0: Dodano obsługę rampy i bezpośrednich kontaktów.")
+st.title("📊 Historia Zleceń Cargo")
+st.markdown("Rejestr głównych transportów na wydarzenia. Baza odfiltrowana wyłącznie dla wyjazdów zbiorczych (TARGI).")
+
+# Pobranie danych
+df_history = load_cargo_history()
 
 col_btn, col_empty = st.columns([1, 4])
 with col_btn:
-    if st.button("🔄 Odśwież bazę"):
+    if st.button("🔄 Odśwież bazę z chmury", use_container_width=True):
         st.cache_data.clear()
+        st.rerun()
 
 st.markdown("---")
 
-# --- FORMULARZ DODAWANIA ---
-with st.expander("➕ DODAĆ NOWE MIEJSCE / KONTRAHENTA", expanded=False):
-    with st.form("form_nowe_miejsce"):
-        col1, col2 = st.columns(2)
-        with col1:
-            skrot = st.text_input("Nazwa do listy (np. SQM Komorniki)")
-            firma = st.text_input("Pełna nazwa firmy")
-            ulica = st.text_input("Ulica i numer")
-            rampa = st.selectbox("Czy na miejscu jest rampa?", ["TAK", "NIE", "BRAK DANYCH"])
-        with col2:
-            kod_pocztowy = st.text_input("Kod pocztowy")
-            miasto = st.text_input("Miasto")
-            kraj = st.text_input("Kraj", value="Polska")
-            kontakt = st.text_input("Osoba kontaktowa / Tel (np. P.Dukiel +48...)")
-            
-        submit = st.form_submit_button("Zapisz do Google Sheets")
+if not df_history.empty:
+    # --- STATYSTYKI SZYBKIE ---
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Wszystkich Zleceń Cargo", len(df_history))
+    
+    df_history['Stawka'] = pd.to_numeric(df_history['Stawka'], errors='coerce').fillna(0)
+    suma_kosztow = df_history['Stawka'].sum()
+    c2.metric("Suma Kosztów Transportu Cargo", f"{suma_kosztow:,.2f}")
+    
+    unikalne_eventy = df_history['ID Projektu'].nunique() # W Cargo przechowujemy tu Nazwę Eventu
+    c3.metric("Obsłużonych Eventów", unikalne_eventy)
+    
+    st.markdown("---")
+    
+    # --- FILTROWANIE BAZY ---
+    st.markdown("### 🔍 Wyszukiwarka Zleceń")
+    f1, f2, f3 = st.columns(3)
+    
+    # Lista unikalnych wartości do filtrów
+    lista_eventow = ["Wszystkie"] + sorted(df_history['ID Projektu'].astype(str).unique().tolist())
+    lista_przewoznikow = ["Wszyscy"] + sorted(df_history['Zleceniobiorca'].astype(str).unique().tolist())
+    
+    filtr_event = f1.selectbox("Filtruj wg Eventu (Targów):", lista_eventow)
+    filtr_przew = f2.selectbox("Filtruj wg Przewoźnika:", lista_przewoznikow)
+    wyszukiwarka = f3.text_input("Szukaj w numerze zlecenia lub uwagach:")
+    
+    # Zastosowanie filtrów
+    df_filtered = df_history.copy()
+    
+    if filtr_event != "Wszystkie":
+        df_filtered = df_filtered[df_filtered['ID Projektu'] == filtr_event]
         
-        if submit:
-            if skrot and miasto:
-                with st.spinner("Zapisywanie..."):
-                    # Kolejność kolumn: Nazwa do listy, Nazwa pełna, Ulica, Kod, Miasto, Kraj, Osoba/Tel, Rampa
-                    nowy_wiersz = [skrot, firma, ulica, kod_pocztowy, miasto, kraj, kontakt, rampa]
-                    append_miejsce(nowy_wiersz)
-                    st.cache_data.clear()
-                    st.success(f"Dodano: {skrot}")
-            else:
-                st.warning("Nazwa i Miasto są wymagane!")
+    if filtr_przew != "Wszyscy":
+        df_filtered = df_filtered[df_filtered['Zleceniobiorca'] == filtr_przew]
+        
+    if wyszukiwarka:
+        df_filtered = df_filtered[
+            df_filtered['Numer zlecenia'].str.contains(wyszukiwarka, case=False, na=False) |
+            df_filtered['Uwagi / Instrukcje'].str.contains(wyszukiwarka, case=False, na=False)
+        ]
+        
+    # --- WYŚWIETLANIE TABELI ---
+    # Wybieramy tylko najważniejsze kolumny do wyświetlenia, żeby nie zaśmiecać ekranu
+    kolumny_do_widoku = [
+        'Data wystawienia', 'Numer zlecenia', 'ID Projektu', 
+        'Zleceniobiorca', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 
+        'Stawka', 'Uwagi / Instrukcje'
+    ]
+    
+    # Upewniamy się, że kolumny istnieją (zabezpieczenie)
+    obecne_kolumny = [col for col in kolumny_do_widoku if col in df_filtered.columns]
+    
+    st.dataframe(
+        df_filtered[obecne_kolumny].sort_values(by='Data wystawienia', ascending=False),
+        use_container_width=True,
+        hide_index=True,
+        height=600
+    )
+    
+    st.caption(f"Wyświetlam {len(df_filtered)} zleceń z bazy.")
 
-# --- TABELA ---
-df_miejsca = load_miejsca()
-if not df_miejsca.empty:
-    st.dataframe(df_miejsca, use_container_width=True, hide_index=True)
+else:
+    st.info("Brak zarejestrowanych transportów Cargo (TARGI) w bazie. Wygeneruj pierwsze zlecenie w zakładce 'Dyspozycja Floty'.")
