@@ -4,93 +4,140 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- KONFIGURACJA ---
+# --- KONFIGURACJA STRONY ---
 st.set_page_config(layout="wide", page_title="Dyspozycja Floty | Cargo")
+
+# --- UKRYCIE DOMYŚLNEGO MENU I DEDYKOWANY PASEK BOCZNY (CARGO) ---
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none !important;}
+    </style>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
+    st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
+    st.divider()
+    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
+    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
+    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
+    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
+
+# --- POŁĄCZENIE Z BAZĄ DANYCH ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
-# --- MENU BOCZNE (TYLKO CARGO) ---
-st.markdown("""<style>[data-testid="stSidebarNav"] {display: none !important;}</style>""", unsafe_allow_html=True)
-with st.sidebar:
-    st.markdown("### 🚛 LOGISTYKA CARGO")
-    st.page_link("app.py", label="⬅ Wróć do Głównego Menu")
-    st.divider()
-    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty")
-    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
-    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników")
-    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń")
-
 def get_gsheets_client():
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=60)
-def load_data():
+def load_all_cargo_data():
     client = get_gsheets_client()
     sh = client.open_by_url(SHEET_URL)
-    return (pd.DataFrame(sh.worksheet("Zleceniobiorcy").get_all_records()), 
-            pd.DataFrame(sh.worksheet("Miejsca").get_all_records()), 
-            pd.DataFrame(sh.worksheet("Projekty").get_all_records()))
+    
+    # Pobieranie danych z arkuszy
+    przewoznicy = pd.DataFrame(sh.worksheet("Zleceniobiorcy").get_all_records())
+    miejsca = pd.DataFrame(sh.worksheet("Miejsca").get_all_records())
+    projekty = pd.DataFrame(sh.worksheet("Projekty").get_all_records())
+    
+    return przewoznicy, miejsca, projekty
 
-df_p, df_m, df_projekty = load_data()
+# --- ŁADOWANIE DANYCH ---
+df_p, df_m, df_projekty = load_all_cargo_data()
 
+# --- INTERFEJS UŻYTKOWNIKA ---
 st.title("🚛 Dyspozycja Floty - TARGI")
-st.info("Formularz planowania pełnego cyklu transportowego na wydarzenie.")
+st.markdown("Planowanie transportu zbiorczego z pełnym harmonogramem operacyjnym.")
 
-with st.form("form_cargo_full"):
-    # Sekcja 1: Nagłówek i Strony
+with st.form("form_targi_cargo", border=True):
+    
+    # SEKCJA 1: INFORMACJE OGÓLNE
+    st.markdown("### 🎯 1. Identyfikacja Wydarzenia")
     c1, c2 = st.columns(2)
+    
     lista_eventow = sorted(df_projekty['Nazwa Eventu'].unique().tolist()) if not df_projekty.empty else []
     wybrany_event = c1.selectbox("Wybierz Event (Targi)", lista_eventow)
     nr_zlecenia = c2.text_input("Numer Zlecenia", f"TARGI/{datetime.now().strftime('%Y/%m')}/")
     
     st.divider()
-    
-    # Sekcja 2: Przewoźnik i Trasa
-    col1, col2, col3 = st.columns(3)
-    przewoznik = col1.selectbox("Przewoźnik", df_p['Nazwa do listy'].tolist())
-    skad = col2.selectbox("Załadunek (Start)", df_m['Nazwa do listy'].tolist())
-    dokad = col3.selectbox("Rozładunek (Targi)", df_m['Nazwa do listy'].tolist())
 
-    # Sekcja 3: HARMONOGRAM TARGOWY (Twoje nowe daty)
-    st.markdown("### 📅 Harmonogram Operacyjny")
-    d1, d2, d3 = st.columns(3)
-    data_zal = d1.date_input("1. Data Załadunku (Magazyn)")
-    data_roz_montaz = d2.date_input("2. Data Rozładunku (Montaż)")
-    data_empties_odbior = d3.date_input("3. Odbiór Empties (od Kontrahenta)")
+    # SEKCJA 2: STRONY I TRASA
+    st.markdown("### 🏢 2. Strony i Trasa Główna")
+    col1, col2, col3 = st.columns(3)
     
-    d4, d5, d6 = st.columns(3)
-    data_empties_dostawa = d4.date_input("4. Dostawa Empties (na stoisko)")
-    data_zal_powrot = d5.date_input("5. Załadunek po demontażu")
-    data_roz_magazyn = d6.date_input("6. Rozładunek (Magazyn własny)")
+    przewoznik = col1.selectbox("Przewoźnik", df_p['Nazwa do listy'].tolist() if not df_p.empty else [])
+    zaladunek_skrot = col2.selectbox("Miejsce Załadunku (Start)", df_m['Nazwa do listy'].tolist() if not df_m.empty else [])
+    rozladunek_skrot = col3.selectbox("Miejsce Rozładunku (Targi)", df_m['Nazwa do listy'].tolist() if not df_m.empty else [])
 
     st.divider()
 
-    # Sekcja 4: Dane techniczne
-    st.markdown("### 🚛 Dane Auta i Kierowcy")
-    k1, k2, k3, k4 = st.columns(4)
-    nr_rej = k1.text_input("Nr rejestracyjny")
-    kierowca = k2.text_input("Imię i Nazwisko")
-    tel_kierowcy = k3.text_input("Telefon")
-    stawka = k4.number_input("Stawka Całkowita", min_value=0)
+    # SEKCJA 3: HARMONOGRAM OPERACYJNY (6 DAT)
+    st.markdown("### 📅 3. Harmonogram Operacyjny (Full Cycle)")
     
-    uwagi = st.text_area("Uwagi dodatkowe i specyfikacja ładunku")
+    h1, h2, h3 = st.columns(3)
+    d_zal_magazyn = h1.date_input("1. Data Załadunku (Magazyn własny)")
+    d_roz_montaz = h2.date_input("2. Data Rozładunku (Montaż na Targach)")
+    d_empties_odbior = h3.date_input("3. Odbiór Empties (Odbiór pustych opakowań)")
+    
+    h4, h5, h6 = st.columns(3)
+    d_empties_dostawa = h4.date_input("4. Dostawa Empties (Dostarczenie na demontaż)")
+    d_zal_powrot = h5.date_input("5. Załadunek Pełnych Casów (Koniec demontażu)")
+    d_roz_magazyn_final = h6.date_input("6. Rozładunek po powrocie (Magazyn)")
 
-    if st.form_submit_button("🚀 Zapisz Pełne Zlecenie"):
-        # Przygotowanie opisu z datami do kolumny N (Uwagi)
-        harmonogram_txt = (
-            f"ZAL: {data_zal} | ROZ(MONT): {data_roz_montaz} | "
-            f"EMP_OUT: {data_empties_odbior} | EMP_IN: {data_empties_dostawa} | "
-            f"POWR_ZAL: {data_zal_powrot} | POWR_ROZ: {data_roz_magazyn}"
-        )
-        kompletne_uwagi = f"{uwagi} || AUTO: {nr_rej}, KIER: {kierowca} ({tel_kierowcy}) || HARMONOGRAM: {harmonogram_txt}"
-        
-        nowy_wiersz = [
-            datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "VORTEX_CARGO", 
-            przewoznik, skad, dokad, str(data_zal), str(data_roz_magazyn), 
-            "Transport Targowy", "", "", "", "", 
-            kompletne_uwagi, "", wybrany_event, "TARGI", stawka
-        ]
-        
-        get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zlecenia").append_row(nowy_wiersz)
-        st.success("Zlecenie TARGI zostało poprawnie zarchiwizowane w systemie!")
-        st.balloons()
+    st.divider()
+
+    # SEKCJA 4: DANE TECHNICZNE I FINANSE
+    st.markdown("### 🛠️ 4. Szczegóły Transportu")
+    k1, k2, k3, k4 = st.columns(4)
+    
+    nr_rej = k1.text_input("Nr rejestracyjny auta")
+    kierowca = k2.text_input("Imię i Nazwisko kierowcy")
+    telefon = k3.text_input("Telefon do kierowcy")
+    stawka = k4.number_input("Stawka całkowita (PLN/EUR)", min_value=0)
+
+    uwagi = st.text_area("Uwagi dodatkowe (Specyfikacja naczepy, lista projektów itp.)")
+
+    # PRZYCISK ZAPISU
+    submit = st.form_submit_button("🚀 ZAPISZ ZLECENIE I HARMONOGRAM")
+
+if submit:
+    # Przygotowanie tekstu harmonogramu do kolumny UWAGI (Kolumna N)
+    harmonogram_txt = (
+        f"HARMONOGRAM: [1] Zal: {d_zal_magazyn} | [2] Roz(Mont): {d_roz_montaz} | "
+        f"[3] Emp_Out: {d_empties_odbior} | [4] Emp_In: {d_empties_dostawa} | "
+        f"[5] Zal(Demont): {d_zal_powrot} | [6] Roz(Mag): {d_roz_magazyn_final}"
+    )
+    
+    kompletne_uwagi = f"{uwagi} || AUTO: {nr_rej}, KIER: {kierowca} ({telefon}) || {harmonogram_txt}"
+    
+    # Przygotowanie wiersza do Google Sheets (zgodnie ze strukturą Twojego arkusza)
+    nowy_wiersz = [
+        datetime.now().strftime("%Y-%m-%d %H:%M"), # A: Data wystawienia
+        nr_zlecenia,             # B: Numer zlecenia
+        "VORTEX_CARGO",          # C: Zleceniodawca (Dział)
+        przewoznik,              # D: Zleceniobiorca
+        zaladunek_skrot,         # E: Miejsce Zaladunku
+        rozladunek_skrot,        # F: Miejsce Rozladunku
+        str(d_zal_magazyn),      # G: Data Zaladunku (Pierwsza data)
+        str(d_roz_magazyn_final),# H: Data Rozladunku (Ostatnia data)
+        "Transport Zbiorczy TARGI", # I: Rodzaj towaru
+        "",                      # J: Ilosc opakowan
+        "",                      # K: Rodzaj opakowania
+        "",                      # L: Waga brutto
+        "",                      # M: Wartosc towaru
+        kompletne_uwagi,         # N: Uwagi / Instrukcje (Tu ląduje harmonogram i auto)
+        "",                      # O: Hash QR
+        wybrany_event,           # P: ID PROJEKTU (W Cargo używamy Nazwy Eventu)
+        "TARGI",                 # Q: TYP TRANSPORTU (Kluczowy filtr)
+        stawka                   # R: STAWKA
+    ]
+    
+    try:
+        with st.spinner("Zapisywanie zlecenia w systemie..."):
+            get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zlecenia").append_row(nowy_wiersz)
+            st.success(f"Zlecenie {nr_zlecenia} dla {wybrany_event} zostało pomyślnie zapisane!")
+            st.balloons()
+            st.cache_data.clear() # Odświeżamy dane
+    except Exception as e:
+        st.error(f"Wystąpił błąd podczas zapisu: {e}")
