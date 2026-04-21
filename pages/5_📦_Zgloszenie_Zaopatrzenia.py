@@ -10,7 +10,7 @@ st.set_page_config(layout="wide", page_title="Zgłoszenie Zaopatrzenia")
 # --- UKRYCIE DOMYŚLNEGO MENU ---
 st.markdown("""<style>[data-testid="stSidebarNav"] {display: none !important;}</style>""", unsafe_allow_html=True)
 
-# --- POPRAWIONY PASEK BOCZNY (ZAOPATRZENIE) ---
+# --- PASEK BOCZNY (ZAOPATRZENIE) ---
 with st.sidebar:
     st.markdown("<h2 style='color: #10b981;'>📦 ZAOPATRZENIE</h2>", unsafe_allow_html=True)
     st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
@@ -29,6 +29,18 @@ def get_client():
     )
     return gspread.authorize(creds)
 
+def get_next_daily_number():
+    """Sprawdza łączną liczbę wpisów z dzisiaj, aby nadać kolejny numer (01, 02...)"""
+    client = get_client()
+    ws = client.open_by_url(SHEET_URL).worksheet("Zlecenia")
+    dzisiaj = datetime.now().strftime("%Y-%m-%d")
+    df = pd.DataFrame(ws.get_all_records())
+    
+    if not df.empty and 'Data wystawienia' in df.columns:
+        dzisiejsze = df[df['Data wystawienia'].astype(str).str.startswith(dzisiaj)]
+        return len(dzisiejsze) + 1
+    return 1
+
 @st.cache_data(ttl=30)
 def load_miejsca():
     try:
@@ -40,57 +52,74 @@ def load_miejsca():
 miejsca = load_miejsca()
 
 # --- INTERFEJS APLIKACJI ---
-st.title("➕ Nowe Zgłoszenie Transportu")
-st.markdown("Wypełnij poniższe dane. Twoje zgłoszenie trafi do działu logistyki w celu wyceny i organizacji przewoźnika.")
+st.title("➕ Nowe Zgłoszenie Transportu (CRG)")
+st.markdown("Wypełnij dane, aby przesłać zapotrzebowanie do działu logistyki.")
 
 with st.form("form_req", border=True):
-    id_p = st.text_input("ID Projektu (5 cyfr)", max_chars=5)
+    # NOWOŚĆ: Wybór opiekuna zlecenia
+    st.subheader("Opiekun zlecenia")
+    logistyk = st.radio("Kto zajmuje się tym zgłoszeniem?", ["PD", "PK"], horizontal=True)
+    
+    st.markdown("---")
+    
+    c1, c2 = st.columns(2)
+    id_p = c1.text_input("ID Projektu (5 cyfr)", max_chars=5)
     
     lista_miejsc = miejsca['Nazwa do listy'].tolist() if not miejsca.empty else []
-    kontrahent = st.selectbox("Skąd lub dokąd transportujemy?", lista_miejsc)
+    kontrahent = c2.selectbox("Miejsce (Skąd/Dokąd)", lista_miejsc)
     
     d1, d2 = st.columns(2)
-    data = d1.date_input("Data gotowości sprzętu")
-    kierunek = d2.radio("Kierunek:", ["Inbound (Przywóz do nas)", "Zwrot (Odesłanie do kontrahenta)"])
+    data_gotowosci = d1.date_input("Data gotowości sprzętu")
+    kierunek = d2.radio("Typ operacji:", ["Inbound (Do nas)", "Zwrot (Do kontrahenta)"])
     
-    opis = st.text_area("Co dokładnie jedzie? (Opis sprzętu, ilość, uwagi)")
+    opis = st.text_area("Szczegóły (Co transportujemy?)")
     
-    submit_btn = st.form_submit_button("🚀 Wyślij do Logistyka")
+    submit_btn = st.form_submit_button("🚀 Wyślij do Wyceny i Realizacji", type="primary")
     
     if submit_btn:
         if len(id_p) >= 4 and kontrahent:
-            # Generowanie unikalnego numeru referencyjnego
-            nr = f"REQ/{id_p}/{datetime.now().strftime('%d%H%M')}"
-            
-            # Ustalanie trasy na podstawie kierunku
-            m_zal = kontrahent if "Inbound" in kierunek else "MAGAZYN WŁASNY"
-            m_roz = "MAGAZYN WŁASNY" if "Inbound" in kierunek else kontrahent
-            
-            # Tworzenie wiersza danych do wysłania
-            nowy_wiersz = [
-                datetime.now().strftime("%Y-%m-%d %H:%M"), # A: Data wystawienia
-                nr,                                        # B: Numer zlecenia
-                "ZAOPATRZENIE",                            # C: Dział Zgłaszający
-                "",                                        # D: Przewoźnik (zostawiamy puste dla logistyka)
-                m_zal,                                     # E: Załadunek
-                m_roz,                                     # F: Rozładunek
-                str(data),                                 # G: Data gotowości
-                "",                                        # H: Puste
-                "Sprzęt Wypożyczony",                      # I: Rodzaj
-                "", "", "", "",                            # J, K, L, M
-                opis,                                      # N: Uwagi
-                "",                                        # O: Hash
-                id_p,                                      # P: ID Projektu
-                "ZAOP_DO_WYCENY",                          # Q: Status (Kluczowe dla logistyka!)
-                0                                          # R: Koszt (początkowo 0)
-            ]
-            
-            with st.spinner("Wysyłanie zgłoszenia do bazy..."):
+            with st.spinner("Generowanie unikalnego numeru CRG..."):
                 try:
+                    # 1. Pobranie numeru dnia
+                    kolejny = get_next_daily_number()
+                    
+                    # 2. Budowa numeru według Twojego nowego standardu:
+                    # CRG + ROK / MIESIĄC_DZIEŃ / INICJAŁY_NUMER
+                    rok = datetime.now().strftime('%y')
+                    mc_dzien = datetime.now().strftime('%m%d')
+                    seq = f"{kolejny:02d}"
+                    
+                    # Przykład: CRG26/0421/PD01
+                    nr_zlecenia = f"CRG{rok}/{mc_dzien}/{logistyk}{seq}"
+                    
+                    # 3. Ustalanie trasy
+                    m_zal = kontrahent if "Inbound" in kierunek else "MAGAZYN WŁASNY"
+                    m_roz = "MAGAZYN WŁASNY" if "Inbound" in kierunek else kontrahent
+                    
+                    # 4. Zapis wiersza
+                    nowy_wiersz = [
+                        datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                        nr_zlecenia, 
+                        "ZAOPATRZENIE", 
+                        "", # Przewoźnik (puste do wyceny)
+                        m_zal, 
+                        m_roz, 
+                        str(data_gotowosci), 
+                        "", 
+                        "Sprzęt Wypożyczony", 
+                        "", "", "", "", 
+                        f"Opiekun: {logistyk} | {opis}", 
+                        "", 
+                        id_p, 
+                        "ZAOP_DO_WYCENY", 
+                        0
+                    ]
+                    
                     get_client().open_by_url(SHEET_URL).worksheet("Zlecenia").append_row(nowy_wiersz)
-                    st.success(f"Sukces! Zgłoszenie {nr} zostało wysłane do logistyka.")
+                    st.success(f"Zgłoszenie zarejestrowane! Numer: **{nr_zlecenia}**")
                     st.cache_data.clear()
+                    
                 except Exception as e:
-                    st.error(f"Nie udało się wysłać zgłoszenia: {e}")
+                    st.error(f"Błąd zapisu: {e}")
         else:
-            st.warning("⚠️ Uzupełnij poprawnie ID Projektu (min. 4 znaki) oraz miejsce!")
+            st.warning("Uzupełnij ID Projektu i wybierz Miejsce!")
