@@ -10,7 +10,6 @@ from google.oauth2.service_account import Credentials
 import tempfile
 import urllib.request
 import os
-import time
 
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(layout="wide", page_title="Terminal CMR | Cargo")
@@ -56,9 +55,10 @@ def load_cargo_orders():
 # --- LOGIKA GENEROWANIA KODU QR ---
 def generate_security_qr(order_num, carrier, loading, unloading):
     SECRET_SALT = "CMR2026!VortexCargo" 
+    # Bezpieczne formatowanie stringów, zapobiega błędom jeśli wartość to NaN/None
     raw_data = f"{order_num}|{carrier}|{loading}|{unloading}|{SECRET_SALT}"
     secure_hash = hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
-    qr_payload = f"--- VORTEX CARGO SECURITY ---\nRef: {order_num}\nPrzewoznik: {carrier[:25]}\nTrasa: {loading} -> {unloading}\nSHA: {secure_hash}"
+    qr_payload = f"--- VORTEX CARGO SECURITY ---\nRef: {order_num}\nPrzewoznik: {str(carrier)[:25]}\nTrasa: {loading} -> {unloading}\nSHA: {secure_hash}"
     
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(qr_payload)
@@ -152,43 +152,61 @@ if not df_orders.empty:
     with st.container(border=True):
         col_sel, col_info = st.columns([1, 2])
         
-        lista_numerow = df_orders['Numer zlecenia'].tolist()[::-1]
-        wybrany_nr = col_sel.selectbox("Wybierz Numer Zlecenia:", lista_numerow)
+        # Filtrujemy tylko te zlecenia, które mają nadany 'Numer zlecenia'
+        lista_numerow = [str(nr) for nr in df_orders['Numer zlecenia'].tolist() if pd.notna(nr)][::-1]
         
-        row = df_orders[df_orders['Numer zlecenia'] == wybrany_nr].iloc[0]
-        
-        col_info.info(f"📍 Trasa: **{row['Miejsce Zaladunku']}** ➡️ **{row['Miejsce Rozladunku']}**")
-        col_info.write(f"🚛 Przewoźnik: {row['Zleceniobiorca']} | 📦 Towar: {row['Rodzaj towaru']}")
+        if lista_numerow:
+            wybrany_nr = col_sel.selectbox("Wybierz Numer Zlecenia:", lista_numerow)
+            
+            row = df_orders[df_orders['Numer zlecenia'].astype(str) == wybrany_nr].iloc[0]
+            
+            # Bezpieczne wyświetlanie informacji
+            miejsce_zal = row.get('Miejsce Zaladunku', 'Brak')
+            miejsce_roz = row.get('Miejsce Rozladunku', 'Brak')
+            zleceniobiorca = row.get('Zleceniobiorca', 'Brak')
+            towar = row.get('Rodzaj towaru', 'Brak')
+            
+            col_info.info(f"📍 Trasa: **{miejsce_zal}** ➡️ **{miejsce_roz}**")
+            col_info.write(f"🚛 Przewoźnik: {zleceniobiorca} | 📦 Towar: {towar}")
 
-    if st.button("🌐 GENERUJ I POBIERZ PAKIET CMR", type="primary", use_container_width=True):
-        with st.spinner("Przetwarzanie dokumentu i generowanie skrótów SHA-256..."):
-            qr_bytes = generate_security_qr(row['Numer zlecenia'], row['Zleceniobiorca'], row['Miejsce Zaladunku'], row['Miejsce Rozladunku'])
-            
-            # Mapowanie danych z bazy do generatora PDF
-            pdf_data = {
-                "Numer zlecenia": row['Numer zlecenia'],
-                "Zleceniodawca": "VORTEX NEXUS LOGISTICS\nul. Magazynowa 10, 62-052 Komorniki",
-                "Odbiorca": f"TARGI / EVENT: {row['ID Projektu']}\nLokalizacja: {row['Miejsce Rozladunku']}",
-                "Adres zaladunku": row['Miejsce Zaladunku'],
-                "Adres rozladunku": row['Miejsce Rozladunku'],
-                "Data zaladunku": row['Data Zaladunku'],
-                "Zleceniobiorca": row['Zleceniobiorca'],
-                "Pojazd_Kierowca": row['Uwagi / Instrukcje'].split("||")[1] if "||" in row['Uwagi / Instrukcje'] else "",
-                "Rodzaj towaru": row['Rodzaj towaru'],
-                "Ilosc opakowan": row['Ilosc opakowan'],
-                "Rodzaj opakowania": row['Rodzaj opakowania'],
-                "Waga brutto": row['Waga brutto'],
-                "Uwagi": row['Uwagi / Instrukcje']
-            }
-            
-            pdf_out = generate_full_cmr(pdf_data, qr_bytes)
-            
-            st.success("Pakiet CMR gotowy!")
-            st.download_button(
-                label="📥 POBIERZ PDF (3 STRONY CMR)",
-                data=pdf_out,
-                file_name=f"CMR_{row['Numer zlecenia'].replace('/', '_')}.pdf",
-                mime="application/pdf"
-            )
+            if st.button("🌐 GENERUJ I POBIERZ PAKIET CMR", type="primary", use_container_width=True):
+                with st.spinner("Przetwarzanie dokumentu i generowanie skrótów SHA-256..."):
+                    qr_bytes = generate_security_qr(row.get('Numer zlecenia', ''), zleceniobiorca, miejsce_zal, miejsce_roz)
+                    
+                    # -----------------------------------------------------
+                    # KULOODPORNE MAPOWANIE DANYCH (ZABEZPIECZENIE PRZED KEYERROR)
+                    # -----------------------------------------------------
+                    uwagi = str(row.get('Uwagi / Instrukcje', ''))
+                    kierowca_auto = uwagi.split("||")[1].strip() if "||" in uwagi else ""
+                    
+                    pdf_data = {
+                        "Numer zlecenia": str(row.get('Numer zlecenia', '')),
+                        "Zleceniodawca": "VORTEX NEXUS LOGISTICS\nul. Magazynowa 10, 62-052 Komorniki",
+                        "Odbiorca": f"TARGI / EVENT: {str(row.get('ID Projektu', ''))}\nLokalizacja: {miejsce_roz}",
+                        "Adres zaladunku": miejsce_zal,
+                        "Adres rozladunku": miejsce_roz,
+                        "Data zaladunku": str(row.get('Data Zaladunku', '')),
+                        "Zleceniobiorca": zleceniobiorca,
+                        "Pojazd_Kierowca": kierowca_auto,
+                        "Rodzaj towaru": towar if towar else "Sprzęt Eventowy",
+                        "Ilosc opakowan": str(row.get('Ilosc opakowan', '')),
+                        "Rodzaj opakowania": str(row.get('Rodzaj opakowania', '')),
+                        "Waga brutto": str(row.get('Waga brutto', '')),
+                        "Uwagi": uwagi
+                    }
+                    
+                    pdf_out = generate_full_cmr(pdf_data, qr_bytes)
+                    
+                    st.success("Pakiet CMR gotowy!")
+                    
+                    bezpieczna_nazwa = str(row.get('Numer zlecenia', 'dokument')).replace('/', '_')
+                    st.download_button(
+                        label="📥 POBIERZ PDF (3 STRONY CMR)",
+                        data=pdf_out,
+                        file_name=f"CMR_{bezpieczna_nazwa}.pdf",
+                        mime="application/pdf"
+                    )
+        else:
+            st.warning("Brak zleceń z poprawnym numerem w bazie.")
 else:
     st.info("Brak zarejestrowanych zleceń typu TARGI w bazie.")
