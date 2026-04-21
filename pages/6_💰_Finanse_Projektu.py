@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -13,7 +12,7 @@ def get_gsheets_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=60)
+# UWAGA: Usunięto @st.cache_data, aby wymusić świeże pobieranie za każdym razem!
 def load_data():
     client = get_gsheets_client()
     sh = client.open_by_url(SHEET_URL)
@@ -23,57 +22,56 @@ def load_data():
 
 # --- INTERFEJS ---
 st.markdown("<h1 style='text-align: center; color: #38bdf8;'>VORTEX FINANCIAL TRACKER</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #94a3b8;'>Panel kontroli kosztów i logistyki zwrotnej sprzętu eventowego</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 df_zlecenia, df_projekty = load_data()
+
+# --- TRYB DIAGNOSTYCZNY ---
+st.warning(f"**TRYB DIAGNOSTYCZNY:** Znalazłem następujące kolumny w zakładce Projekty: `{df_projekty.columns.tolist()}`")
 
 # WYSZUKIWARKA
 col_search, col_empty = st.columns([1, 2])
 wyszukiwane_id = col_search.text_input("🔍 Wpisz 5-cyfrowe ID Projektu:")
 
 if wyszukiwane_id:
-    # 1. Sprawdzanie Projektu
-    projekt_info = df_projekty[df_projekty['ID Projektu'].astype(str) == str(wyszukiwane_id)]
-    
-    if not projekt_info.empty:
-        nazwa_eventu = projekt_info.iloc[0]['Nazwa Eventu']
-        st.success(f"**EVENT:** {nazwa_eventu} | **PROJEKT ID:** {wyszukiwane_id}")
-        
-        # 2. Filtrowanie Zleceń dla tego projektu
-        if not df_zlecenia.empty and 'ID Projektu' in df_zlecenia.columns:
-            zlecenia_projektu = df_zlecenia[df_zlecenia['ID Projektu'].astype(str) == str(wyszukiwane_id)]
-            
-            if not zlecenia_projektu.empty:
-                # Zamiana kolumny Stawka na liczby, ignorowanie błędów
-                zlecenia_projektu['Stawka'] = pd.to_numeric(zlecenia_projektu['Stawka'], errors='coerce').fillna(0)
-                
-                # Obliczenia
-                koszt_inbound = zlecenia_projektu[zlecenia_projektu['Typ transportu'].str.contains("Inbound", na=False)]['Stawka'].sum()
-                koszt_zwrotow = zlecenia_projektu[zlecenia_projektu['Typ transportu'].str.contains("Zwrot", na=False)]['Stawka'].sum()
-                koszt_outbound = zlecenia_projektu[zlecenia_projektu['Typ transportu'].str.contains("Outbound", na=False)]['Stawka'].sum()
-                koszt_calkowity = koszt_inbound + koszt_zwrotow + koszt_outbound
-
-                # KPI
-                st.markdown("### 📊 Podsumowanie Kosztów Transportu")
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Całkowity Koszt Logistyki", f"{koszt_calkowity:,.2f} PLN/EUR")
-                k2.metric("📦 Ściągnięcie Sprzętu (Inbound)", f"{koszt_inbound:,.2f}")
-                k3.metric("🚛 Wyjazd na Event (Outbound)", f"{koszt_outbound:,.2f}")
-                k4.metric("🔄 Zwroty do dostawców (Return)", f"{koszt_zwrotow:,.2f}")
-
-                st.markdown("---")
-                
-                # TABELA ZLECEŃ DLA PROJEKTU (Analiza zwrotów)
-                st.markdown("### 📋 Historia ruchów dla tego projektu")
-                st.dataframe(
-                    zlecenia_projektu[['Data wystawienia', 'Numer zlecenia', 'Zleceniobiorca', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 'Typ transportu', 'Stawka']],
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("Brak wystawionych zleceń transportowych dla tego projektu.")
-        else:
-            st.info("Baza zleceń nie zawiera jeszcze kolumn z ID Projektu. Wygeneruj pierwsze zlecenie w nowej wersji systemu.")
+    # Zabezpieczenie przed błędem (KeyError)
+    if 'ID Projektu' not in df_projekty.columns:
+        st.error("🚨 Błąd bazy danych: Wciąż nie widzę kolumny 'ID Projektu'! Sprawdź żółty komunikat wyżej, aby zobaczyć, jak Streamlit widzi Twoje nagłówki z Google Sheets.")
     else:
-        st.error("Nie znaleziono projektu w bazie.")
+        # 1. Sprawdzanie Projektu
+        projekt_info = df_projekty[df_projekty['ID Projektu'].astype(str) == str(wyszukiwane_id)]
+        
+        if not projekt_info.empty:
+            nazwa_eventu = projekt_info.iloc[0]['Nazwa Eventu']
+            st.success(f"**EVENT:** {nazwa_eventu} | **PROJEKT ID:** {wyszukiwane_id}")
+            
+            # 2. Filtrowanie Zleceń dla tego projektu
+            if not df_zlecenia.empty and 'ID Projektu' in df_zlecenia.columns:
+                zlecenia_projektu = df_zlecenia[df_zlecenia['ID Projektu'].astype(str) == str(wyszukiwane_id)]
+                
+                if not zlecenia_projektu.empty:
+                    zlecenia_projektu['Stawka'] = pd.to_numeric(zlecenia_projektu['Stawka'], errors='coerce').fillna(0)
+                    
+                    koszt_inbound = zlecenia_projektu[zlecenia_projektu['Typ transportu'].str.contains("Inbound", na=False)]['Stawka'].sum()
+                    koszt_zwrotow = zlecenia_projektu[zlecenia_projektu['Typ transportu'].str.contains("Zwrot", na=False)]['Stawka'].sum()
+                    koszt_outbound = zlecenia_projektu[zlecenia_projektu['Typ transportu'].str.contains("Outbound", na=False)]['Stawka'].sum()
+                    koszt_calkowity = koszt_inbound + koszt_zwrotow + koszt_outbound
+
+                    st.markdown("### 📊 Podsumowanie Kosztów")
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Całkowity Koszt", f"{koszt_calkowity:,.2f} PLN/EUR")
+                    k2.metric("📦 Ściągnięcie (Inbound)", f"{koszt_inbound:,.2f}")
+                    k3.metric("🚛 Wyjazd (Outbound)", f"{koszt_outbound:,.2f}")
+                    k4.metric("🔄 Zwroty (Return)", f"{koszt_zwrotow:,.2f}")
+
+                    st.markdown("---")
+                    st.dataframe(
+                        zlecenia_projektu[['Data wystawienia', 'Numer zlecenia', 'Zleceniobiorca', 'Typ transportu', 'Stawka']],
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.info("Brak wystawionych zleceń dla tego projektu.")
+            else:
+                st.info("Baza zleceń nie zawiera jeszcze kolumny z ID Projektu.")
+        else:
+            st.error("Nie znaleziono projektu w bazie.")
