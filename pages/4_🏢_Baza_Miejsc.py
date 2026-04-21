@@ -7,14 +7,12 @@ from google.oauth2.service_account import Credentials
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
-    """Autoryzacja w Google Sheets na podstawie st.secrets"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=60)
 def load_miejsca():
-    """Pobiera wszystkie dane z zakładki Miejsca"""
     try:
         client = get_gsheets_client()
         spreadsheet = client.open_by_url(SHEET_URL)
@@ -26,61 +24,50 @@ def load_miejsca():
         return pd.DataFrame()
 
 def append_miejsce(row_data):
-    """Dopisuje nowy wiersz do bazy miejsc"""
     client = get_gsheets_client()
     client.open_by_url(SHEET_URL).worksheet("Miejsca").append_row(row_data)
 
 # --- INTERFEJS APLIKACJI ---
-st.set_page_config(layout="wide", page_title="Baza Miejsc")
-st.title("🏢 Zarządzanie Bazą Załadunków i Rozładunków")
-st.markdown("Tutaj znajduje się słownik wszystkich adresów używanych w zleceniach. Nowo dodane miejsca natychmiast pojawią się na listach rozwijanych w głównym module aplikacji.")
+st.set_page_config(layout="wide", page_title="Baza Miejsc V2")
+st.title("🏢 Zarządzanie Bazą Kontrahentów i Miejsc")
+st.markdown("V2.0: Dodano obsługę rampy i bezpośrednich kontaktów.")
 
 col_btn, col_empty = st.columns([1, 4])
 with col_btn:
-    if st.button("🔄 Odśwież bazę z Google Sheets"):
+    if st.button("🔄 Odśwież bazę"):
         st.cache_data.clear()
 
 st.markdown("---")
 
-# --- FORMULARZ DODAWANIA NOWEGO MIEJSCA ---
-with st.expander("➕ KLIKNIJ TUTAJ, ABY DODAĆ NOWE MIEJSCE / ADRES", expanded=False):
+# --- FORMULARZ DODAWANIA ---
+with st.expander("➕ DODAĆ NOWE MIEJSCE / KONTRAHENTA", expanded=False):
     with st.form("form_nowe_miejsce"):
-        st.info("Nazwa skrócona posłuży Ci do łatwego wyszukiwania na liście w formularzu Zlecenia.")
         col1, col2 = st.columns(2)
         with col1:
-            skrot = st.text_input("Nazwa do listy (np. Magazyn Amazon WRO1)")
-            firma = st.text_input("Pełna nazwa firmy (Odbiorcy/Nadawcy na miejscu)")
+            skrot = st.text_input("Nazwa do listy (np. SQM Komorniki)")
+            firma = st.text_input("Pełna nazwa firmy")
             ulica = st.text_input("Ulica i numer")
+            rampa = st.selectbox("Czy na miejscu jest rampa?", ["TAK", "NIE", "BRAK DANYCH"])
         with col2:
             kod_pocztowy = st.text_input("Kod pocztowy")
             miasto = st.text_input("Miasto")
             kraj = st.text_input("Kraj", value="Polska")
-            kontakt = st.text_input("Osoba kontaktowa / Telefon (Opcjonalnie)")
+            kontakt = st.text_input("Osoba kontaktowa / Tel (np. P.Dukiel +48...)")
             
-        submit = st.form_submit_button("Zapisz Miejsce do Bazy (Google Sheets)")
+        submit = st.form_submit_button("Zapisz do Google Sheets")
         
         if submit:
             if skrot and miasto:
-                with st.spinner("Zapisywanie adresu do chmury..."):
-                    # Kolejność zapisu odpowiadająca kolumnom w Twojej zakładce "Miejsca"
-                    nowy_wiersz = [skrot, firma, ulica, kod_pocztowy, miasto, kraj, kontakt]
+                with st.spinner("Zapisywanie..."):
+                    # Kolejność kolumn: Nazwa do listy, Nazwa pełna, Ulica, Kod, Miasto, Kraj, Osoba/Tel, Rampa
+                    nowy_wiersz = [skrot, firma, ulica, kod_pocztowy, miasto, kraj, kontakt, rampa]
                     append_miejsce(nowy_wiersz)
-                    st.cache_data.clear() # Wymusza odświeżenie widoku
-                    st.success(f"Sukces! Dodano lokalizację '{skrot}' do bazy.")
+                    st.cache_data.clear()
+                    st.success(f"Dodano: {skrot}")
             else:
-                st.warning("⚠️ Nazwa do listy oraz Miasto są polami obowiązkowymi!")
+                st.warning("Nazwa i Miasto są wymagane!")
 
-# --- WYŚWIETLANIE BAZY W TABELI ---
-st.markdown("### 📋 Twoje zapisane lokalizacje")
+# --- TABELA ---
 df_miejsca = load_miejsca()
-
 if not df_miejsca.empty:
-    st.dataframe(
-        df_miejsca, 
-        use_container_width=True, 
-        hide_index=True,
-        height=500
-    )
-    st.caption(f"Łącznie zapisanych adresów: {len(df_miejsca)}")
-else:
-    st.info("Baza miejsc jest obecnie pusta. Dodaj pierwszy adres korzystając z panelu powyżej.")
+    st.dataframe(df_miejsca, use_container_width=True, hide_index=True)
