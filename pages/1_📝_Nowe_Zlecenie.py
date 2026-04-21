@@ -22,31 +22,27 @@ def load_data():
 
 df_p, df_m, df_projekty = load_data()
 
-st.title("🚛 Dyspozycja Floty (Transport Główny)")
-st.markdown("Ten moduł służy do zamawiania transportu zbiorczego na Event.")
+st.title("🚛 Dyspozycja Floty (Transport Główny na Event)")
+st.markdown("Ten moduł służy do zamawiania transportu zbiorczego na całe targi/konferencję.")
 
 with st.form("form_flota"):
     c1, c2 = st.columns(2)
-    # Wybór Eventu (unikalne nazwy z bazy projektów)
     lista_eventow = sorted(df_projekty['Nazwa Eventu'].unique().tolist()) if not df_projekty.empty else []
     wybrany_event = c1.selectbox("Wybierz Event (Targi)", lista_eventow)
-    
-    # Szczegóły trasy
-    opcje_trasy = c2.multiselect("Typ operacji", ["Dostawa", "Postój (Auto-Magazyn)", "Odbiór/Powrót"], default=["Dostawa"])
+    opcje_trasy = c2.multiselect("Zakres operacji", ["Dostawa", "Postój", "Powrót"], default=["Dostawa"])
     
     st.divider()
-    
     col1, col2, col3 = st.columns(3)
-    przewoznik = col1.selectbox("Przewoźnik", df_p['Nazwa do listy'].tolist() if not df_p.empty else [])
-    skad = col2.selectbox("Załadunek", df_m['Nazwa do listy'].tolist() if not df_m.empty else [])
-    dokad = col3.selectbox("Rozładunek", df_m['Nazwa do listy'].tolist() if not df_m.empty else [])
+    przewoznik = col1.selectbox("Przewoźnik", df_p['Nazwa do listy'].tolist())
+    skad = col2.selectbox("Załadunek", df_m['Nazwa do listy'].tolist())
+    dokad = col3.selectbox("Rozładunek", df_m['Nazwa do listy'].tolist())
     
-    stawka = st.number_input("Koszt całkowity transportu (Stawka)", min_value=0)
+    stawka = st.number_input("Koszt całkowity transportu floty", min_value=0)
     nr_zlecenia = st.text_input("Numer Zlecenia", f"FLOTA/{datetime.now().strftime('%Y/%m')}/")
-    uwagi = st.text_area("Co dokładnie jedzie? (Np. Projekty: 11112, 11115, 12001)")
+    uwagi = st.text_area("Lista projektów na naczepie / Dodatkowe uwagi")
 
     if st.form_submit_button("🚀 Zapisz Zlecenie Floty"):
-        # Zapisujemy do Google Sheets (Kolumna Q: Typ transportu -> 'Główny/Flota', Kolumna P: ID Projektu -> Nazwa Eventu)
+        # P: ID Projektu (tutaj zapisujemy Nazwę Eventu), Q: Typ transportu, R: Stawka
         nowy_wiersz = [datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "Moja Firma", przewoznik, skad, dokad, "", "", "Transport Zbiorczy", "", "", "", "", uwagi, "", wybrany_event, "FLOTA_MAIN", stawka]
         get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zlecenia").append_row(nowy_wiersz)
-        st.success("Zlecenie transportu zbiorczego zapisane!")
+        st.success(f"Zlecenie floty dla {wybrany_event} zostało zapisane.")
