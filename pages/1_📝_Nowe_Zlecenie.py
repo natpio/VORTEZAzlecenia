@@ -22,8 +22,8 @@ def load_data():
 
 df_p, df_m, df_projekty = load_data()
 
-st.title("🚛 Dyspozycja Floty (Transport Główny na Event)")
-st.markdown("Ten moduł służy do zamawiania transportu zbiorczego na całe targi/konferencję.")
+st.title("🚛 Dyspozycja Floty - TARGI")
+st.markdown("Zamówienie głównego transportu zbiorczego na wydarzenie.")
 
 with st.form("form_flota"):
     c1, c2 = st.columns(2)
@@ -37,12 +37,23 @@ with st.form("form_flota"):
     skad = col2.selectbox("Załadunek", df_m['Nazwa do listy'].tolist())
     dokad = col3.selectbox("Rozładunek", df_m['Nazwa do listy'].tolist())
     
-    stawka = st.number_input("Koszt całkowity transportu floty", min_value=0)
-    nr_zlecenia = st.text_input("Numer Zlecenia", f"FLOTA/{datetime.now().strftime('%Y/%m')}/")
-    uwagi = st.text_area("Lista projektów na naczepie / Dodatkowe uwagi")
+    st.markdown("**Dane Auta i Kierowcy:**")
+    k1, k2, k3 = st.columns(3)
+    nr_rej = k1.text_input("Nr rejestracyjny")
+    kierowca = k2.text_input("Kierowca")
+    tel_kierowcy = k3.text_input("Telefon")
+    
+    stawka = st.number_input("Koszt całkowity (Stawka)", min_value=0)
+    nr_zlecenia = st.text_input("Numer Zlecenia", f"TARGI/{datetime.now().strftime('%Y/%m')}/")
+    uwagi = st.text_area("Uwagi (Projekty na aucie, specyfikacja)")
 
-    if st.form_submit_button("🚀 Zapisz Zlecenie Floty"):
-        # P: ID Projektu (tutaj zapisujemy Nazwę Eventu), Q: Typ transportu, R: Stawka
-        nowy_wiersz = [datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "Moja Firma", przewoznik, skad, dokad, "", "", "Transport Zbiorczy", "", "", "", "", uwagi, "", wybrany_event, "FLOTA_MAIN", stawka]
+    if st.form_submit_button("🚀 Zapisz Zlecenie"):
+        dane_auta = f"{uwagi} | AUTO: {nr_rej}, KIER: {kierowca} ({tel_kierowcy})"
+        # Zapisujemy "TARGI" w kolumnie Q
+        nowy_wiersz = [
+            datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "Moja Firma", 
+            przewoznik, skad, dokad, "", "", "Transport Zbiorczy", "", "", "", "", 
+            dane_auta, "", wybrany_event, "TARGI", stawka
+        ]
         get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zlecenia").append_row(nowy_wiersz)
-        st.success(f"Zlecenie floty dla {wybrany_event} zostało zapisane.")
+        st.success(f"Zlecenie główne na TARGI ({wybrany_event}) zapisane!")
