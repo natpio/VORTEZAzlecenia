@@ -3,11 +3,29 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- KONFIGURACJA ---
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(layout="wide", page_title="Baza Przewoźników | Cargo")
+
+# --- UKRYCIE DOMYŚLNEGO MENU I DEDYKOWANY PASEK BOCZNY (CARGO) ---
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none !important;}
+    </style>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
+    st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
+    st.divider()
+    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
+    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
+    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
+    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
+
+# --- KONFIGURACJA BAZY DANYCH ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
-    """Autoryzacja w Google Sheets na podstawie st.secrets"""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
@@ -19,9 +37,7 @@ def load_przewoznicy():
         client = get_gsheets_client()
         spreadsheet = client.open_by_url(SHEET_URL)
         ws = spreadsheet.worksheet("Zleceniobiorcy")
-        # Pobieranie wszystkich rekordów jako DataFrame
-        df = pd.DataFrame(ws.get_all_records())
-        return df
+        return pd.DataFrame(ws.get_all_records())
     except Exception as e:
         st.error(f"Błąd łączenia z arkuszem Zleceniobiorcy: {e}")
         return pd.DataFrame()
@@ -32,26 +48,25 @@ def append_przewoznik(row_data):
     client.open_by_url(SHEET_URL).worksheet("Zleceniobiorcy").append_row(row_data)
 
 # --- INTERFEJS APLIKACJI ---
-st.set_page_config(layout="wide", page_title="Baza Przewoźników")
-st.title("🚚 Zarządzanie Bazą Przewoźników")
-st.markdown("Tutaj znajduje się słownik Twoich podwykonawców. Firmy dodane w tym miejscu będą dostępne na liście rozwijanej podczas generowania nowych Zleceń i CMR.")
+st.title("🚚 Zarządzanie Bazą Przewoźników Cargo")
+st.markdown("Słownik głównych firm transportowych obsługujących wyjazdy na eventy. Firmy dodane tutaj będą dostępne w Dyspozycji Floty oraz Terminalu CMR.")
 
 col_btn, col_empty = st.columns([1, 4])
 with col_btn:
-    if st.button("🔄 Odśwież bazę z Google Sheets"):
+    if st.button("🔄 Odśwież bazę z Google Sheets", use_container_width=True):
         st.cache_data.clear()
+        st.rerun()
 
 st.markdown("---")
 
 # --- FORMULARZ DODAWANIA NOWEGO PRZEWOŹNIKA ---
-# Expander to zwijany panel - oszczędza miejsce na ekranie
 with st.expander("➕ KLIKNIJ TUTAJ, ABY DODAĆ NOWEGO PRZEWOŹNIKA", expanded=False):
     with st.form("form_nowy_przewoznik"):
-        st.info("Pamiętaj: Skrócona nazwa to ta, którą będziesz wybierać z listy. Pełna nazwa wydrukuje się na dokumentach.")
+        st.info("Pamiętaj: Skrócona nazwa to ta, którą będziesz wybierać z listy w innych modułach. Pełna nazwa wydrukuje się na dokumentach oficjalnych.")
         col1, col2 = st.columns(2)
         with col1:
-            skrot = st.text_input("Skrócona nazwa (np. Trans-Pol)")
-            pelna_nazwa = st.text_area("Pełna nazwa firmy i NIP (np. Trans-Pol Sp. z o.o., NIP 123456789)")
+            skrot = st.text_input("Skrócona nazwa do listy (np. Trans-Pol)")
+            pelna_nazwa = st.text_area("Pełna nazwa firmy i NIP (np. Trans-Pol Sp. z o.o., NIP: 123456)")
             nip = st.text_input("NIP (osobno)")
         with col2:
             ulica = st.text_input("Ulica i numer")
@@ -64,21 +79,20 @@ with st.expander("➕ KLIKNIJ TUTAJ, ABY DODAĆ NOWEGO PRZEWOŹNIKA", expanded=F
         if submit:
             if skrot and pelna_nazwa:
                 with st.spinner("Zapisywanie do chmury..."):
-                    # Ważne: Kolejność zapisu odpowiada domyślnym kolumnom w Twoim arkuszu
+                    # Kolejność zapisu odpowiada domyślnym kolumnom w Twoim arkuszu "Zleceniobiorcy"
                     nowy_wiersz = [skrot, pelna_nazwa, ulica, miasto, kraj, nip, pojazd]
                     append_przewoznik(nowy_wiersz)
-                    # Wymuszamy wyczyszczenie pamięci podręcznej, żeby tabela poniżej od razu pokazała nową firmę
                     st.cache_data.clear() 
-                    st.success(f"Sukces! Dodano firmę {skrot} do bazy.")
+                    st.success(f"Sukces! Dodano firmę '{skrot}' do bazy.")
+                    st.rerun()
             else:
                 st.warning("⚠️ Skrócona nazwa oraz Pełna nazwa są wymagane!")
 
 # --- WYŚWIETLANIE BAZY W TABELI ---
-st.markdown("### 📋 Twoi Przewoźnicy")
+st.markdown("### 📋 Twoi Przewoźnicy Cargo")
 df_przewoznicy = load_przewoznicy()
 
 if not df_przewoznicy.empty:
-    # Wyświetlamy ładną tabelę. use_container_width dopasuje ją do szerokości monitora
     st.dataframe(
         df_przewoznicy, 
         use_container_width=True, 
@@ -87,4 +101,4 @@ if not df_przewoznicy.empty:
     )
     st.caption(f"Łącznie przewoźników w bazie: {len(df_przewoznicy)}")
 else:
-    st.info("Baza przewoźników jest pusta. Dodaj pierwszą firmę korzystając z formularza powyżej lub wpisując ją bezpośrednio w Google Sheets.")
+    st.info("Baza przewoźników jest pusta. Dodaj pierwszą firmę korzystając z formularza powyżej.")
