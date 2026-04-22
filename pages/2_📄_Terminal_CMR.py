@@ -1,209 +1,166 @@
 import streamlit as st
 import pandas as pd
 import qrcode
-import hashlib
-from datetime import datetime
 import io
 from fpdf import FPDF
-import gspread
-from google.oauth2.service_account import Credentials
-import tempfile
-import urllib.request
-import os
+from datetime import datetime
 
-# --- KONFIGURACJA STRONY ---
-st.set_page_config(layout="wide", page_title="Terminal CMR | Cargo")
+# Importujemy silnik Vortex
+from core import fetch_data
 
-# --- UKRYCIE DOMYŚLNEGO MENU I DEDYKOWANY PASEK BOCZNY (CARGO) ---
-st.markdown("""
-    <style>
-        [data-testid="stSidebarNav"] {display: none !important;}
-    </style>
-""", unsafe_allow_html=True)
-
-# ---> ZAKTUALIZOWANY PASEK BOCZNY (Z nowym panelem obsługi zaopatrzenia) <---
-with st.sidebar:
-    st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
-    st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
-    st.divider()
-    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
-    st.page_link("pages/8_🛠️_Obsluga_Zaopatrzenia.py", label="Obsługa Zaopatrzenia")
-    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
-    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
-    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
-
-# --- KONFIGURACJA BAZY DANYCH ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
-
-def get_gsheets_client():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    return gspread.authorize(creds)
-
-@st.cache_data(ttl=30)
-def load_cargo_orders():
-    try:
-        client = get_gsheets_client()
-        sh = client.open_by_url(SHEET_URL)
-        df = pd.DataFrame(sh.worksheet("Zlecenia").get_all_records())
-        # Filtrujemy tylko zlecenia typu TARGI
-        if not df.empty and 'Typ transportu' in df.columns:
-            return df[df['Typ transportu'] == "TARGI"]
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Błąd ładowania bazy: {e}")
-        return pd.DataFrame()
-
-# --- LOGIKA GENEROWANIA KODU QR ---
-def generate_security_qr(order_num, carrier, loading, unloading):
-    SECRET_SALT = "CMR2026!VortexCargo" 
-    raw_data = f"{order_num}|{carrier}|{loading}|{unloading}|{SECRET_SALT}"
-    secure_hash = hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
-    qr_payload = f"--- VORTEX CARGO SECURITY ---\nRef: {order_num}\nPrzewoznik: {str(carrier)[:25]}\nTrasa: {loading} -> {unloading}\nSHA: {secure_hash}"
-    
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(qr_payload)
-    qr.make(fit=True)
-    img_byte_arr = io.BytesIO()
-    qr.make_image(fill_color="black", back_color="white").save(img_byte_arr, format='PNG')
-    return img_byte_arr.getvalue()
-
-# --- FUNKCJE RYSOWANIA CMR (FPDF) ---
-def draw_cmr_page(pdf, data, qr_bytes, copy_number, copy_title):
-    pdf.add_page()
-    
-    def draw_box(x, y, w, h, num, pl_text, en_text, content="", thick_border=False):
-        pdf.set_line_width(0.6 if thick_border else 0.2)
-        pdf.rect(x, y, w, h)
-        pdf.set_line_width(0.2)
-        if num:
-            pdf.set_font("Roboto", "B", 7)
-            pdf.set_xy(x+1, y+1); pdf.cell(4, 3, txt=str(num))
-        pdf.set_font("Roboto", "", 5)
-        pdf.set_xy(x+5 if num else x+1, y+1); pdf.cell(w-5, 3, txt=pl_text)
-        pdf.set_xy(x+5 if num else x+1, y+4); pdf.cell(w-5, 3, txt=en_text)
-        if content:
-            pdf.set_font("Roboto", "B", 8)
-            pdf.set_xy(x+2, y+8); pdf.multi_cell(w-4, 4, txt=str(content))
-
-    # Nagłówek CMR
-    pdf.set_font("Roboto", "B", 14); pdf.set_xy(10, 8); pdf.cell(5, 5, txt=str(copy_number))
-    pdf.set_font("Roboto", "", 8); pdf.set_xy(15, 8); pdf.cell(85, 4, txt=copy_title)
-    pdf.set_font("Roboto", "B", 12); pdf.set_xy(140, 10); pdf.cell(15, 6, txt="CMR", border=1, align='C')
-    pdf.set_font("Roboto", "B", 12); pdf.set_xy(160, 10); pdf.cell(40, 6, txt=f"No. {data.get('Numer zlecenia', '')}")
-
-    # Pola 1-5
-    draw_box(10, 15, 95, 25, "1", "Nadawca", "Sender", data.get('Zleceniodawca', ''))
-    draw_box(10, 40, 95, 25, "2", "Odbiorca", "Consignee", data.get('Odbiorca', ''))
-    draw_box(10, 65, 95, 15, "3", "Miejsce przeznaczenia", "Place of delivery", data.get('Adres rozladunku', ''))
-    draw_box(10, 80, 95, 15, "4", "Miejsce i data zaladowania", "Place and date of taking over", f"{data.get('Adres zaladunku', '')}\n{data.get('Data zaladunku', '')}")
-    draw_box(10, 95, 95, 20, "5", "Zalaczone dokumenty", "Documents attached")
-
-    # QR Code Security
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        tmp.write(qr_bytes); tmp.flush(); tmp_name = tmp.name
-    pdf.image(tmp_name, x=75, y=98, w=15)
-    os.remove(tmp_name)
-
-    # Przewoźnik 16-18
-    draw_box(105, 40, 95, 35, "16", "Przewoznik", "Carrier", f"{data.get('Zleceniobiorca', '')}\n{data.get('Pojazd_Kierowca', '')}", thick_border=True)
-    draw_box(105, 75, 95, 15, "17", "Kolejni przewoznicy", "Successive carriers", thick_border=True)
-    draw_box(105, 90, 95, 25, "18", "Zastrzezenia przewoznika", "Carrier's reservations", thick_border=True)
-
-    # Tabela towarowa (Pola 6-12)
-    y_t = 115; pdf.rect(10, y_t, 190, 60)
-    pdf.line(65, y_t, 65, y_t+60); pdf.set_font("Roboto", "B", 9)
-    pdf.set_xy(67, y_t+5); pdf.cell(60, 5, txt=f"TOWAR: {data.get('Rodzaj towaru', '')}")
-    pdf.set_xy(67, y_t+12); pdf.cell(60, 5, txt=f"ILOSC: {data.get('Ilosc opakowan', '')} {data.get('Rodzaj opakowania', '')}")
-    pdf.set_xy(150, y_t+5); pdf.cell(30, 5, txt=f"WAGA: {data.get('Waga brutto', '')} kg")
-
-    # Podpisy 22-24
-    draw_box(10, 235, 63, 30, "22", "Podpis nadawcy", "Sender signature", thick_border=True)
-    draw_box(73, 235, 63, 30, "23", "Podpis przewoznika", "Carrier signature", thick_border=True)
-    draw_box(136, 235, 64, 30, "24", "Podpis odbiorcy", "Consignee signature", thick_border=True)
-
-def generate_full_cmr(data, qr_bytes):
+# --- KONFIGURACJA DOKUMENTU ---
+def generate_cmr_v3(data, qr_img):
+    """Generuje 3-stronny dokument CMR (Standard International)."""
     pdf = FPDF()
-    font_reg = "Roboto-Regular.ttf"
-    font_bold = "Roboto-Bold.ttf"
-    if not os.path.exists(font_reg):
-        urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf", font_reg)
-    if not os.path.exists(font_bold):
-        urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Bold.ttf", font_bold)
     
-    pdf.add_font("Roboto", "", font_reg, uni=True)
-    pdf.add_font("Roboto", "B", font_bold, uni=True)
-    
-    copies = [
-        (1, "1. Egzemplarz dla nadawcy / Copy for sender"),
-        (2, "2. Egzemplarz dla odbiorcy / Copy for consignee"),
-        (3, "3. Egzemplarz dla przewoznika / Copy for carrier")
+    # Nagłówki stron CMR
+    strony = [
+        "1. EXEMPLAIRE POUR LE TRANSPORTEUR (CZARNY)",
+        "2. EXEMPLAIRE POUR LE DESTINATAIRE (NIEBIESKI)",
+        "3. EXEMPLAIRE POUR L'EXPEDITEUR (CZERWONY)"
     ]
-    for num, title in copies:
-        draw_cmr_page(pdf, data, qr_bytes, num, title)
+
+    for label in strony:
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(0, 10, "INTERNATIONAL CONSIGNMENT NOTE (CMR)", ln=True, align='C')
+        pdf.set_font("Arial", 'I', 8)
+        pdf.cell(0, 5, label, ln=True, align='C')
+        pdf.ln(5)
+
+        # Ramka danych
+        pdf.set_font("Arial", 'B', 10)
         
-    return pdf.output(dest='S').encode('latin-1')
+        # Sekcja 1 & 2: Nadawca i Odbiorca
+        pdf.rect(10, 30, 95, 40) # Nadawca
+        pdf.set_xy(12, 32)
+        pdf.cell(0, 5, "1. Sender (Name, Address, Country):")
+        pdf.set_font("Arial", '', 10)
+        pdf.set_xy(12, 38)
+        pdf.multi_cell(90, 5, "VORTEX NEXUS LOGISTICS\nMagazyn Centralny Komorniki\nPOLAND")
+
+        pdf.rect(105, 30, 95, 40) # Odbiorca
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_xy(107, 32)
+        pdf.cell(0, 5, "2. Consignee (Name, Address, Country):")
+        pdf.set_font("Arial", '', 10)
+        pdf.set_xy(107, 38)
+        pdf.multi_cell(90, 5, data['odbiorca'])
+
+        # Sekcja 3 & 4: Miejsce zał / rozł
+        pdf.rect(10, 70, 95, 30)
+        pdf.set_xy(12, 72)
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(0, 5, "3. Place of taking over the goods:")
+        pdf.set_font("Arial", '', 10)
+        pdf.set_xy(12, 78)
+        pdf.multi_cell(90, 5, data['zaladunek'])
+
+        pdf.rect(105, 70, 95, 30)
+        pdf.set_xy(107, 72)
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(0, 5, "4. Place of delivery of the goods:")
+        pdf.set_font("Arial", '', 10)
+        pdf.set_xy(107, 78)
+        pdf.multi_cell(90, 5, data['rozladunek'])
+
+        # Sekcja: Przewoźnik
+        pdf.rect(10, 100, 190, 30)
+        pdf.set_xy(12, 102)
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(0, 5, "16. Carrier (Name, Address, Country):")
+        pdf.set_font("Arial", '', 10)
+        pdf.set_xy(12, 108)
+        pdf.multi_cell(180, 5, f"{data['przewoznik']}\nVehicle: {data['pojazd']}")
+
+        # Sekcja: Towar
+        pdf.rect(10, 130, 190, 50)
+        pdf.set_xy(12, 132)
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(0, 5, "6-12. Marks, Nos, Number of packages, Method of packing, Nature of goods:")
+        pdf.set_font("Arial", '', 11)
+        pdf.set_xy(12, 140)
+        pdf.multi_cell(180, 7, f"GOODS: {data['towar']}\nQUANTITY: As per packing list\nINSTRUCTIONS: {data['uwagi']}")
+
+        # QR CODE & Footer
+        pdf.image(qr_img, 165, 185, 30, 30)
+        pdf.set_xy(10, 200)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 10, f"REF NR: {data['nr']}", ln=True)
+        pdf.set_font("Arial", 'I', 8)
+        pdf.cell(0, 5, f"Generated via Vortex Nexus 3.0 Core Engine | {datetime.now().strftime('%Y-%m-%d %H:%M')}", align='R')
+
+    return pdf.output(dest='S').encode('latin1')
 
 # --- INTERFEJS TERMINALA ---
-st.title("📄 Terminal CMR - LOGISTYKA CARGO")
-st.markdown("Wybierz zlecenie z bazy TARGI, aby wygenerować komplet 3 kopii dokumentu CMR.")
+st.markdown("<h1 style='color: #38bdf8;'>📄 TERMINAL CMR</h1>", unsafe_allow_html=True)
+st.markdown("<p style='color: #94a3b8;'>Generowanie międzynarodowych listów przewozowych na podstawie zleceń Cargo.</p>", unsafe_allow_html=True)
 
-df_orders = load_cargo_orders()
+with st.spinner("Ładowanie rejestru zleceń..."):
+    df = fetch_data("Zlecenia")
 
-if not df_orders.empty:
-    with st.container(border=True):
-        col_sel, col_info = st.columns([1, 2])
-        
-        lista_numerow = [str(nr) for nr in df_orders['Numer zlecenia'].tolist() if pd.notna(nr)][::-1]
-        
-        if lista_numerow:
-            wybrany_nr = col_sel.selectbox("Wybierz Numer Zlecenia:", lista_numerow)
+if not df.empty:
+    # Filtrujemy tylko zlecenia Cargo (Targowe)
+    df_cargo = df[df['Dział'] == 'LOGISTYKA CARGO'].iloc[::-1] # Najnowsze na górze
+    
+    if not df_cargo.empty:
+        with st.container(border=True):
+            st.markdown("### 🔍 Wybierz zlecenie do wydruku")
+            lista_nr = df_cargo['Numer zlecenia'].tolist()
+            wybor = st.selectbox("Wybierz Numer Zlecenia:", lista_nr, index=0)
             
-            row = df_orders[df_orders['Numer zlecenia'].astype(str) == wybrany_nr].iloc[0]
+            # Pobieranie danych wybranego wiersza
+            r = df_cargo[df_cargo['Numer zlecenia'] == wybor].iloc[0]
             
-            miejsce_zal = row.get('Miejsce Zaladunku', 'Brak')
-            miejsce_roz = row.get('Miejsce Rozladunku', 'Brak')
-            zleceniobiorca = row.get('Zleceniobiorca', 'Brak')
-            towar = row.get('Rodzaj towaru', 'Brak')
-            
-            col_info.info(f"📍 Trasa: **{miejsce_zal}** ➡️ **{miejsce_roz}**")
-            col_info.write(f"🚛 Przewoźnik: {zleceniobiorca} | 📦 Towar: {towar}")
+            st.markdown("---")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write(f"**Przewoźnik:** {r.get('Zleceniobiorca', 'N/A')}")
+                st.write(f"**Trasa:** {r.get('Miejsce Zaladunku', 'N/A')} ➡️ {r.get('Miejsce Rozladunku', 'N/A')}")
+            with c2:
+                st.write(f"**Data:** {r.get('Data Zaladunku', 'N/A')}")
+                st.write(f"**Towar:** {r.get('Towar', 'Sprzęt Eventowy')}")
 
-            if st.button("🌐 GENERUJ I POBIERZ PAKIET CMR", type="primary", use_container_width=True):
-                with st.spinner("Przetwarzanie dokumentu i generowanie skrótów SHA-256..."):
-                    qr_bytes = generate_security_qr(row.get('Numer zlecenia', ''), zleceniobiorca, miejsce_zal, miejsce_roz)
+            # Przygotowanie danych do dokumentu
+            dane_doc = {
+                "nr": str(wybor),
+                "odbiorca": f"TARGI: {r.get('ID Projektu', 'N/A')}\n{r.get('Miejsce Rozladunku', 'N/A')}",
+                "zaladunek": str(r.get('Miejsce Zaladunku', 'Magazyn PL')),
+                "rozladunek": str(r.get('Miejsce Rozladunku', 'Targi')),
+                "przewoznik": str(r.get('Zleceniobiorca', 'N/A')),
+                "pojazd": str(r.get('Uwagi / Instrukcje', '')).split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in str(r.get('Uwagi / Instrukcje', '')) else "Do uzupełnienia",
+                "towar": str(r.get('Towar', 'Elementy zabudowy')),
+                "uwagi": str(r.get('Uwagi / Instrukcje', ''))
+            }
+
+            # Generowanie QR Code
+            qr = qrcode.QRCode(version=1, box_size=10, border=5)
+            qr.add_data(f"VORTEX-CMR-{wybor}")
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            
+            qr_buffer = io.BytesIO()
+            img_qr.save(qr_buffer, format="PNG")
+            qr_buffer.seek(0)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Przycisk pobierania
+            if st.button("🛠️ PRZYGOTUJ PAKIET CMR", type="primary", use_container_width=True):
+                with st.spinner("Składanie dokumentów..."):
+                    pdf_bytes = generate_cmr_v3(dane_doc, qr_buffer)
                     
-                    uwagi = str(row.get('Uwagi / Instrukcje', ''))
-                    kierowca_auto = uwagi.split("||")[1].strip() if "||" in uwagi else ""
-                    
-                    pdf_data = {
-                        "Numer zlecenia": str(row.get('Numer zlecenia', '')),
-                        "Zleceniodawca": "VORTEX NEXUS LOGISTICS\nul. Magazynowa 10, 62-052 Komorniki",
-                        "Odbiorca": f"TARGI / EVENT: {str(row.get('ID Projektu', ''))}\nLokalizacja: {miejsce_roz}",
-                        "Adres zaladunku": miejsce_zal,
-                        "Adres rozladunku": miejsce_roz,
-                        "Data zaladunku": str(row.get('Data Zaladunku', '')),
-                        "Zleceniobiorca": zleceniobiorca,
-                        "Pojazd_Kierowca": kierowca_auto,
-                        "Rodzaj towaru": towar if towar else "Sprzęt Eventowy",
-                        "Ilosc opakowan": str(row.get('Ilosc opakowan', '')),
-                        "Rodzaj opakowania": str(row.get('Rodzaj opakowania', '')),
-                        "Waga brutto": str(row.get('Waga brutto', '')),
-                        "Uwagi": uwagi
-                    }
-                    
-                    pdf_out = generate_full_cmr(pdf_data, qr_bytes)
-                    
-                    st.success("Pakiet CMR gotowy!")
-                    
-                    bezpieczna_nazwa = str(row.get('Numer zlecenia', 'dokument')).replace('/', '_')
+                    st.success("✅ Pakiet CMR (3 strony) jest gotowy do pobrania!")
                     st.download_button(
-                        label="📥 POBIERZ PDF (3 STRONY CMR)",
-                        data=pdf_out,
-                        file_name=f"CMR_{bezpieczna_nazwa}.pdf",
-                        mime="application/pdf"
+                        label="📥 POBIERZ DOKUMENT PDF",
+                        data=pdf_bytes,
+                        file_name=f"CMR_{wybor.replace('/', '_')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
                     )
-        else:
-            st.warning("Brak zleceń z poprawnym numerem w bazie.")
+    else:
+        st.info("Brak aktywnych zleceń Cargo w bazie.")
 else:
-    st.info("Brak zarejestrowanych zleceń typu TARGI w bazie.")
+    st.error("Baza zleceń jest pusta lub niedostępna.")
+
+st.caption("Vortex Nexus 3.0 | Module: CMR Terminal")
