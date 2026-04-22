@@ -1,252 +1,161 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import gspread
-from google.oauth2.service_account import Credentials
-import qrcode
-import io
-import tempfile
 from fpdf import FPDF
-import urllib.request
-import os
+from datetime import datetime
+
+# Importujemy silnik
+from core import fetch_data, get_gsheets_client, fetch_data
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(layout="wide", page_title="Obsługa Zaopatrzenia | Cargo")
+st.markdown("<h1 style='color: #10b981;'>🛠️ WYCENIARKA ZAOPATRZENIA</h1>", unsafe_allow_html=True)
+st.markdown("<p style='color: #94a3b8;'>Panel Logistyka: Akceptacja, wycena i generowanie PDF dla transportów sprzętu.</p>", unsafe_allow_html=True)
 
-# --- UKRYCIE DOMYŚLNEGO MENU I DEDYKOWANY PASEK BOCZNY (CARGO) ---
-st.markdown("""
-    <style>
-        [data-testid="stSidebarNav"] {display: none !important;}
-    </style>
-""", unsafe_allow_html=True)
+# --- GENERATOR PDF (Lokalna funkcja) ---
+def generate_transport_order_pdf(dane):
+    """Generuje szybki dokument PDF. Używamy podstawowej czcionki z filtrem polskich znaków dla bezpieczeństwa systemu."""
+    def sanitize(text):
+        replacements = {'ą':'a', 'ć':'c', 'ę':'e', 'ł':'l', 'ń':'n', 'ó':'o', 'ś':'s', 'ź':'z', 'ż':'z',
+                        'Ą':'A', 'Ć':'C', 'Ę':'E', 'Ł':'L', 'Ń':'N', 'Ó':'O', 'Ś':'S', 'Ź':'Z', 'Ż':'Z'}
+        for pl, eng in replacements.items():
+            text = str(text).replace(pl, eng)
+        return text
 
-with st.sidebar:
-    st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
-    st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
-    st.divider()
-    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
-    st.page_link("pages/8_🛠️_Obsluga_Zaopatrzenia.py", label="Obsługa Zaopatrzenia")
-    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
-    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
-    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
-
-# --- BAZA DANYCH ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
-
-def get_gsheets_client():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], 
-        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    )
-    return gspread.authorize(creds)
-
-@st.cache_data(ttl=15)
-def load_zlecenia():
-    try:
-        client = get_gsheets_client()
-        sh = client.open_by_url(SHEET_URL)
-        return pd.DataFrame(sh.worksheet("Zlecenia").get_all_records())
-    except Exception as e:
-        st.error(f"Błąd ładowania bazy: {e}")
-        return pd.DataFrame()
-
-df_zlecenia = load_zlecenia()
-
-# --- GENERATOR PDF: ZLECENIE TRANSPORTOWE ---
-def generate_transport_order_pdf(data):
     pdf = FPDF()
     pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 15, sanitize(f"ZLECENIE TRANSPORTOWE NR: {dane['nr']}"), ln=True, align="C")
     
-    # Pobieranie czcionek (polskie znaki)
-    font_reg = "Roboto-Regular.ttf"
-    font_bold = "Roboto-Bold.ttf"
-    if not os.path.exists(font_reg):
-        urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf", font_reg)
-    if not os.path.exists(font_bold):
-        urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Bold.ttf", font_bold)
-    
-    pdf.add_font("Roboto", "", font_reg, uni=True)
-    pdf.add_font("Roboto", "B", font_bold, uni=True)
-    
-    # Generowanie kodu QR
-    qr_data = f"ZLECENIE:{data.get('nr', '')} | STAWKA:{data.get('stawka', '')} | PRZEWOZNIK:{data.get('przewoznik', '')}"
-    qr = qrcode.QRCode(version=1, box_size=10, border=2)
-    qr.add_data(qr_data)
-    qr.make(fit=True)
-    qr_img = io.BytesIO()
-    qr.make_image(fill_color="black", back_color="white").save(qr_img, format='PNG')
-    
-    # Nagłówek
-    pdf.set_font("Roboto", "B", 16)
-    pdf.cell(0, 10, f"ZLECENIE TRANSPORTOWE NR: {data.get('nr', '')}", ln=True, align='C')
-    pdf.set_font("Roboto", "", 10)
-    pdf.cell(0, 5, f"Wygenerowano: {datetime.now().strftime('%Y-%m-%d %H:%M')} (Terminal Logistyki)", ln=True, align='C')
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(0, 10, sanitize(f"Data wygenerowania: {datetime.now().strftime('%Y-%m-%d %H:%M')}"), ln=True, align="R")
+    pdf.line(10, 35, 200, 35)
     pdf.ln(10)
     
-    # Kody QR z boku
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        tmp.write(qr_img.getvalue()); tmp.flush(); tmp_name = tmp.name
-    pdf.image(tmp_name, x=160, y=10, w=30)
-    os.remove(tmp_name)
-
-    # Box 1: Strony zlecenia
-    pdf.set_font("Roboto", "B", 12)
-    pdf.cell(95, 8, "ZLECENIODAWCA:", border=1)
-    pdf.cell(95, 8, "ZLECENIOBIORCA (PRZEWOZNIK):", border=1, ln=True)
-    
-    pdf.set_font("Roboto", "", 10)
-    # Zabezpieczenie przed błędem Streamlit: Usunięto parametr max_line_height
-    pdf.multi_cell(95, 6, "VORTEX NEXUS LOGISTICS\nul. Magazynowa 10, 62-052 Komorniki\nKontakt: Logistyka Zaopatrzenia", border=1, align='L')
-    
-    y_before = pdf.get_y() - 18
-    pdf.set_xy(105, y_before)
-    pdf.multi_cell(95, 18, f"{data.get('przewoznik', '')}\nAuto/Kierowca: {data.get('auto', '')}", border=1, align='L')
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, sanitize("SZCZEGOLY OPERACYJNE:"), ln=True)
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(0, 8, sanitize(f"Zleceniobiorca (Przewoznik): {dane['przewoznik']}"), ln=True)
+    pdf.cell(0, 8, sanitize(f"Miejsce Zaladunku: {dane['zaladunek']}"), ln=True)
+    pdf.cell(0, 8, sanitize(f"Miejsce Rozladunku: {dane['rozladunek']}"), ln=True)
+    pdf.cell(0, 8, sanitize(f"Data Gotowosci / Zaladunku: {dane['data_zal']}"), ln=True)
     pdf.ln(5)
-
-    # Box 2: Trasa
-    pdf.set_font("Roboto", "B", 12)
-    pdf.cell(0, 8, "SZCZEGÓŁY TRANSPORTU", border=1, ln=True, fill=False)
-    pdf.set_font("Roboto", "", 10)
     
-    pdf.cell(40, 8, "MIEJSCE ZAŁADUNKU:", border=1)
-    pdf.cell(150, 8, data.get('zaladunek', ''), border=1, ln=True)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, sanitize("KOSZTY I WARUNKI:"), ln=True)
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(0, 8, sanitize(f"Ustalona stawka netto: {dane['stawka']}"), ln=True)
+    pdf.multi_cell(0, 8, sanitize(f"Uwagi i dane auta: {dane['auto']} - {dane['opis']}"))
     
-    pdf.cell(40, 8, "MIEJSCE ROZŁADUNKU:", border=1)
-    pdf.cell(150, 8, data.get('rozladunek', ''), border=1, ln=True)
+    # Zwraca wygenerowany plik w formie bitowej
+    return bytes(pdf.output(dest='S').encode('latin1'))
+
+# --- POBIERANIE DANYCH Z SILNIKA ---
+with st.spinner("Pobieranie zgłoszeń..."):
+    df_zlecenia = fetch_data("Zlecenia")
+    df_przewoznicy = fetch_data("Zleceniobiorcy")
+
+lista_przewoznikow = df_przewoznicy['Skrócona Nazwa'].tolist() if not df_przewoznicy.empty else ["Brak danych"]
+
+if not df_zlecenia.empty and 'Dział' in df_zlecenia.columns:
+    df_zaopatrzenie = df_zlecenia[df_zlecenia['Dział'] == 'ZAOPATRZENIE']
     
-    pdf.cell(40, 8, "DATA ZAŁADUNKU:", border=1)
-    pdf.cell(150, 8, data.get('data_zal', ''), border=1, ln=True)
+    # Oczekujące na wycenę (Stawka == 0 lub Typ == ZAOP_DO_WYCENY)
+    df_do_wyceny = df_zaopatrzenie[df_zaopatrzenie['Stawka'].astype(str) == '0']
     
-    pdf.cell(40, 8, "TOWAR / UWAGI:", border=1)
-    pdf.multi_cell(150, 8, data.get('opis', ''), border=1)
-    pdf.ln(5)
+    # Wyświetlanie metryk
+    c1, c2 = st.columns(2)
+    c1.error(f"🔴 Do pilnej wyceny: **{len(df_do_wyceny)}**")
+    c2.success(f"🟢 Wszystkich zgłoszeń Zaopatrzenia w bazie: **{len(df_zaopatrzenie)}**")
+    st.markdown("---")
 
-    # Box 3: Finanse
-    pdf.set_font("Roboto", "B", 12)
-    pdf.cell(0, 8, "WARUNKI FINANSOWE", border=1, ln=True)
-    pdf.set_font("Roboto", "", 12)
-    pdf.cell(40, 10, "USTALONA STAWKA:", border=1)
-    pdf.set_font("Roboto", "B", 12)
-    pdf.cell(150, 10, f"{data.get('stawka', '0')} PLN netto", border=1, ln=True)
+    # --- ZAKŁADKI OPERACYJNE ---
+    tab1, tab2 = st.tabs(["🔴 DO WYCENY (Panel Operacyjny)", "🟢 ZAAKCEPTOWANE (Generuj PDF)"])
 
-    pdf.ln(20)
-    pdf.set_font("Roboto", "", 10)
-    pdf.cell(95, 5, ".......................................................", ln=False, align='C')
-    pdf.cell(95, 5, ".......................................................", ln=True, align='C')
-    pdf.cell(95, 5, "Podpis Zleceniodawcy", ln=False, align='C')
-    pdf.cell(95, 5, "Podpis Przewoznika", ln=True, align='C')
-
-    # Zabezpieczenie TypeError dla FPDF
-    return pdf.output(dest='S').encode('latin-1')
-
-
-# --- INTERFEJS APLIKACJI ---
-st.title("🛠️ Centrum Obsługi Zaopatrzenia")
-st.markdown("Miejsce, w którym Logistyk wycenia zgłoszenia od zaopatrzeniowców, wybiera przewoźników i generuje zlecenia transportowe.")
-
-tab1, tab2 = st.tabs(["💰 Wycena i Zatwierdzanie (Nowe)", "📄 Generuj Zlecenie PDF (Gotowe)"])
-
-# ==========================================
-# TAB 1: WYCENA
-# ==========================================
-with tab1:
-    st.subheader("Oczekujące zgłoszenia od zaopatrzeniowców")
-    
-    if not df_zlecenia.empty and 'Typ transportu' in df_zlecenia.columns:
-        oczekujace = df_zlecenia[df_zlecenia['Typ transportu'] == "ZAOP_DO_WYCENY"]
-        
-        if not oczekujace.empty:
-            for idx, row in oczekujace.iterrows():
-                with st.expander(f"🔴 REQ: {row.get('Numer zlecenia', '')} | Projekt: {row.get('ID Projektu', '')} | 📍 {row.get('Miejsce Zaladunku', '')} ➡️ {row.get('Miejsce Rozladunku', '')}"):
-                    st.write(f"**Data gotowości:** {row.get('Data Zaladunku', '')}")
-                    st.write(f"**Sprzęt:** {row.get('Uwagi / Instrukcje', '')}")
-                    
-                    st.markdown("---")
-                    with st.form(f"wycena_{row.get('Numer zlecenia', '')}"):
-                        c1, c2 = st.columns(2)
-                        stawka = c1.number_input("Koszt (PLN/EUR)", min_value=0.0)
-                        przewoznik = c2.text_input("Przewoźnik (np. DPD, Własne Auto)")
-                        
-                        auto = st.text_input("Dane kierowcy / Numer rejestracyjny")
-                        typ_final = st.radio("Zatwierdź oficjalny typ:", ["Inbound (Zatwierdzony)", "Zwrot (Zatwierdzony)"])
-                        
-                        if st.form_submit_button("Zatwierdź Koszt i Transport"):
-                            try:
-                                with st.spinner("Zatwierdzanie w systemie..."):
-                                    client = get_gsheets_client()
-                                    ws = client.open_by_url(SHEET_URL).worksheet("Zlecenia")
-                                    
-                                    cell = ws.find(row['Numer zlecenia'])
-                                    row_idx = cell.row
-                                    
-                                    # Dodajemy auto do uwag
-                                    stara_uwaga = str(row.get('Uwagi / Instrukcje', ''))
-                                    nowa_uwaga = f"{stara_uwaga} || {auto}" if auto else stara_uwaga
-                                    
-                                    # Zapis do Google Sheets
-                                    ws.update_cell(row_idx, 4, przewoznik)
-                                    ws.update_cell(row_idx, 14, nowa_uwaga)
-                                    ws.update_cell(row_idx, 17, typ_final)
-                                    ws.update_cell(row_idx, 18, stawka)
-                                    
-                                    st.success(f"Zlecenie zatwierdzone. Przejdź do zakładki PDF, aby pobrać dokument.")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"Wystąpił błąd podczas zapisu: {e}")
-        else:
-            st.success("Wszystkie zgłoszenia zostały wycenione. Pusto w kolejce!")
-    else:
-        st.info("Brak danych do wyświetlenia.")
-
-# ==========================================
-# TAB 2: GENERATOR PDF
-# ==========================================
-with tab2:
-    st.subheader("Pobierz Zlecenie Transportowe (PDF)")
-    
-    if not df_zlecenia.empty and 'Typ transportu' in df_zlecenia.columns:
-        zatwierdzone = df_zlecenia[df_zlecenia['Typ transportu'].isin(["Inbound (Zatwierdzony)", "Zwrot (Zatwierdzony)"])]
-        
-        if not zatwierdzone.empty:
-            # Lista z numerami zleceń
-            lista_numerow = [str(nr) for nr in zatwierdzone['Numer zlecenia'].tolist() if pd.notna(nr)][::-1]
+    # =========================================
+    # ZAKŁADKA 1: WYCENA
+    # =========================================
+    with tab1:
+        if not df_do_wyceny.empty:
+            st.markdown("### Wymaga Twojej akcji:")
+            # Wyświetlamy tylko kluczowe kolumny żeby nie zaśmiecać widoku
+            kolumny_widok = ['Data wystawienia', 'Numer zlecenia', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 'ID Projektu']
+            obecne_kolumny = [k for k in kolumny_widok if k in df_do_wyceny.columns]
+            st.dataframe(df_do_wyceny[obecne_kolumny], hide_index=True, use_container_width=True)
             
-            if lista_numerow:
-                wybrane_nr = st.selectbox("Wybierz Zlecenie do wygenerowania PDF:", lista_numerow)
-                row = zatwierdzone[zatwierdzone['Numer zlecenia'].astype(str) == wybrane_nr].iloc[0]
-                
-                st.write(f"**Przewoźnik:** {row.get('Zleceniobiorca', 'Brak')} | **Stawka:** {row.get('Stawka', '0')} PLN")
-                
-                if st.button("📄 GENERUJ ZLECENIE PDF", type="primary"):
-                    with st.spinner("Generowanie pliku..."):
-                        
-                        # Bezpieczne dzielenie uwag
-                        uwagi_pelne = str(row.get('Uwagi / Instrukcje', ''))
-                        opis_towaru = uwagi_pelne.split("||")[0].strip() if "||" in uwagi_pelne else uwagi_pelne
-                        dane_kierowcy = uwagi_pelne.split("||")[1].strip() if "||" in uwagi_pelne else "Brak danych auta"
+            st.markdown("### ✍️ Wprowadź wycenę:")
+            with st.container(border=True):
+                with st.form("wycena_form"):
+                    lista_zlecen_do_wyboru = df_do_wyceny['Numer zlecenia'].tolist()
+                    w1, w2, w3 = st.columns(3)
+                    wybrane_zlecenie = w1.selectbox("Wybierz zlecenie:", lista_zlecen_do_wyboru)
+                    wybrany_przewoznik = w2.selectbox("Wybierz przewoźnika:", lista_przewoznikow)
+                    stawka = w3.number_input("Stawka netto (PLN/EUR):", min_value=1.0, step=50.0)
+                    
+                    submit_wycena = st.form_submit_button("✅ ZATWIERDŹ WYCENĘ", type="primary", use_container_width=True)
 
-                        dane_pdf = {
-                            "nr": str(row.get('Numer zlecenia', '')),
-                            "przewoznik": str(row.get('Zleceniobiorca', '')),
-                            "zaladunek": str(row.get('Miejsce Zaladunku', '')),
-                            "rozladunek": str(row.get('Miejsce Rozladunku', '')),
-                            "data_zal": str(row.get('Data Zaladunku', '')),
-                            "opis": opis_towaru,
-                            "auto": dane_kierowcy,
-                            "stawka": str(row.get('Stawka', '0'))
-                        }
+            if submit_wycena:
+                with st.spinner("Zapisywanie w bazie..."):
+                    try:
+                        # Znajdujemy indeks wiersza w oryginalnym Dataframe (+2 by pasowało do numeracji w Google Sheets, bo wiersz 1 to nagłówki, a Python liczy od 0)
+                        index_w_df = df_zlecenia[df_zlecenia['Numer zlecenia'] == wybrane_zlecenie].index[0]
+                        sheet_row = int(index_w_df) + 2 
                         
-                        pdf_file = generate_transport_order_pdf(dane_pdf)
-                        bezpieczna_nazwa = wybrane_nr.replace('/', '_')
+                        client = get_gsheets_client()
+                        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit").worksheet("Zlecenia")
                         
-                        st.download_button(
-                            label="📥 POBIERZ GOTOWE ZLECENIE (PDF)",
-                            data=pdf_file,
-                            file_name=f"Zlecenie_{bezpieczna_nazwa}.pdf",
-                            mime="application/pdf"
-                        )
-            else:
-                st.warning("Brak zatwierdzonych zleceń z poprawnym numerem.")
+                        # Kolumna 4 (D) to Zleceniobiorca, 17 (Q) to Typ/Status, 18 (R) to Stawka
+                        sheet.update_cell(sheet_row, 4, wybrany_przewoznik)
+                        sheet.update_cell(sheet_row, 17, "ZAAKCEPTOWANE")
+                        sheet.update_cell(sheet_row, 18, stawka)
+                        
+                        fetch_data.clear() # Czyścimy cache żeby dane się zaktualizowały
+                        st.success(f"Zlecenie {wybrane_zlecenie} zostało wycenione!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Błąd krytyczny podczas zapisu komórek: {e}")
         else:
-            st.warning("Brak zatwierdzonych zleceń. Najpierw wyceń zgłoszenie w zakładce nr 1.")
+            st.success("Wszystkie zlecenia z Zaopatrzenia zostały wycenione! Dobra robota.")
+
+    # =========================================
+    # ZAKŁADKA 2: POBIERANIE PDF
+    # =========================================
+    with tab2:
+        df_zaakceptowane = df_zaopatrzenie[df_zaopatrzenie['Stawka'].astype(str) != '0']
+        
+        if not df_zaakceptowane.empty:
+            st.markdown("### Wybierz wycenione zlecenie, aby pobrać PDF")
+            lista_zaakceptowanych = df_zaakceptowane['Numer zlecenia'].tolist()
+            
+            c_sel, c_btn = st.columns([3, 1])
+            nr_do_pdf = c_sel.selectbox("Wybierz Zlecenie Transportowe:", lista_zaakceptowanych, label_visibility="collapsed")
+            
+            wiersz_danych = df_zaakceptowane[df_zaakceptowane['Numer zlecenia'] == nr_do_pdf].iloc[0]
+            
+            dane_pdf = {
+                "nr": str(wiersz_danych.get('Numer zlecenia', '')),
+                "przewoznik": str(wiersz_danych.get('Zleceniobiorca', '')),
+                "zaladunek": str(wiersz_danych.get('Miejsce Zaladunku', '')),
+                "rozladunek": str(wiersz_danych.get('Miejsce Rozladunku', '')),
+                "data_zal": str(wiersz_danych.get('Data Zaladunku', '')),
+                "opis": str(wiersz_danych.get('Towar', 'Sprzęt')),
+                "auto": str(wiersz_danych.get('Uwagi', '')),
+                "stawka": str(wiersz_danych.get('Stawka', ''))
+            }
+            
+            gotowy_pdf = generate_transport_order_pdf(dane_pdf)
+            
+            with c_btn:
+                bezpieczna_nazwa = nr_do_pdf.replace('/', '_')
+                st.download_button(
+                    label="📥 POBIERZ PDF",
+                    data=gotowy_pdf,
+                    file_name=f"Zlecenie_{bezpieczna_nazwa}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True
+                )
+                
+            st.dataframe(df_zaakceptowane[obecne_kolumny], hide_index=True, use_container_width=True)
+        else:
+            st.info("Brak zaakceptowanych zleceń w bazie.")
+else:
+    st.warning("Silnik nie odnalazł w bazie żadnych zgłoszeń z działu ZAOPATRZENIE.")
