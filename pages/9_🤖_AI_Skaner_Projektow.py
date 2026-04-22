@@ -47,20 +47,21 @@ if uploaded_file is not None:
     if st.button("🔍 Skanuj Tabelę za pomocą AI", type="primary", use_container_width=True):
         with st.spinner("AI analizuje obraz i wyciąga dane... To zajmie kilka sekund."):
             try:
-                # Inicjalizacja najnowszego, standardowego modelu
+                # Inicjalizacja sprawdzonego modelu
                 model = genai.GenerativeModel('models/gemini-2.5-flash')
                 
                 prompt = """
                 Przeanalizuj to zdjęcie tabeli. Zwróć dane WYŁĄCZNIE w formacie JSON jako lista obiektów.
-                Dla każdego wiersza stwórz obiekt z dwoma kluczami:
+                Dla każdego wiersza stwórz obiekt z TRZEMA kluczami, zachowując dokładnie tę kolejność:
                 1. "Nazwa Eventu": Pobierz z kolumny "NAZWA TARGÓW".
                 2. "ID Projektu": Pobierz z kolumny "NUMER PROJEKTU", ale wyciągnij z niej TYLKO 5 pierwszych cyfr (zignoruj słowa takie jak "NIE" lub "nie").
+                3. "Nazwa Projektu": Pobierz z kolumny "NAZWA PROJEKTU" (najbardziej po prawej stronie tabeli, np. Astra Zeneka, Canon).
                 Zignoruj puste wiersze. Nie dodawaj żadnego dodatkowego tekstu ani znaczników markdown poza samym formatem JSON.
                 """
                 
                 response = model.generate_content([prompt, image])
                 
-                # Czyszczenie odpowiedzi JSON
+                # Czyszczenie odpowiedzi JSON (usuwanie znaczników markdown)
                 cleaned_response = response.text.strip()
                 if cleaned_response.startswith('```json'):
                     cleaned_response = cleaned_response[7:]
@@ -77,21 +78,26 @@ if uploaded_file is not None:
                     st.warning("AI nie znalazło żadnych danych w tabeli.")
                     
             except Exception as e:
-                st.error(f"Błąd analizy AI: {e}")
-                st.info("System diagnostyczny odpytuje serwery Google o listę dostępnych modeli dla Twojego klucza...")
-                try:
-                    # DIAGNOSTYKA: Pobieramy listę modeli przypisanych do Twojego klucza
-                    dostepne_modele = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                    st.write("**Lista dostępnych modeli (Skopiuj ją i wyślij do mnie, dobierzemy odpowiedni!):**")
-                    st.write(dostepne_modele)
-                except Exception as diag_e:
-                    st.error(f"Błąd diagnostyki: {diag_e}. Upewnij się, że klucz API jest poprawny.")
+                # Obsługa błędów, w tym limitów darmowego API
+                error_msg = str(e)
+                st.error(f"Błąd analizy AI: {error_msg}")
+                if "429" in error_msg:
+                    st.warning("⚠️ Osiągnięto limit zapytań (5 na minutę). Odczekaj 60 sekund i spróbuj ponownie.")
+                else:
+                    st.info("System diagnostyczny odpytuje serwery Google o listę dostępnych modeli dla Twojego klucza...")
+                    try:
+                        dostepne_modele = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                        st.write("**Lista dostępnych modeli:**")
+                        st.write(dostepne_modele)
+                    except Exception as diag_e:
+                        st.error(f"Błąd diagnostyki: {diag_e}. Upewnij się, że klucz API jest poprawny.")
 
 # --- EDYCJA I ZAPIS DANYCH ---
 if 'scanned_data' in st.session_state:
     st.markdown("### 📝 Krok 2: Weryfikacja i Zapis")
-    st.info("Sprawdź poniższe dane. Możesz poprawić literówki przed zapisem do bazy.")
+    st.info("Sprawdź poniższe dane. Możesz poprawić literówki przed zapisem do bazy. Pamiętaj, aby kolejność kolumn w Arkuszu Google (A, B, C) odpowiadała tym poniżej!")
     
+    # Edytowalna tabela
     edited_df = st.data_editor(st.session_state['scanned_data'], use_container_width=True, num_rows="dynamic")
     
     if st.button("💾 Zapisz zatwierdzone projekty do Google Sheets", type="primary"):
@@ -99,10 +105,14 @@ if 'scanned_data' in st.session_state:
             try:
                 client = get_gsheets_client()
                 worksheet = client.open_by_url(SHEET_URL).worksheet("Projekty")
+                
+                # Konwersja DataFrame do formatu wierszy
                 dane_do_zapisu = edited_df.values.tolist()
+                
+                # Zapisujemy wszystko hurtem na dół tabeli
                 worksheet.append_rows(dane_do_zapisu)
                 
-                st.success("Sukces! Projekty zostały dodane do bazy.")
+                st.success("Sukces! Projekty zostały dodane do bazy. Będą widoczne w listach rozwijanych w systemie za ok. 60 sekund.")
                 del st.session_state['scanned_data']
             except Exception as e:
                 st.error(f"Błąd zapisu do bazy: {e}")
