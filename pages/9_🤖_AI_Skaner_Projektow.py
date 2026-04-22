@@ -32,7 +32,7 @@ def get_gsheets_client():
 
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-pro-vision')
 except Exception as e:
     st.error("Brak konfiguracji klucza GEMINI_API_KEY w Streamlit Secrets.")
 
