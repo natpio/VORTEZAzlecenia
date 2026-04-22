@@ -5,7 +5,6 @@ from google.oauth2.service_account import Credentials
 import google.generativeai as genai
 from PIL import Image
 import json
-import re
 
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(layout="wide", page_title="Skaner AI | Projekty")
@@ -20,7 +19,7 @@ with st.sidebar:
     st.page_link("pages/8_🛠️_Obsluga_Zaopatrzenia.py", label="Obsługa Zaopatrzenia")
     st.page_link("pages/9_🤖_AI_Skaner_Projektow.py", label="AI Skaner Projektów")
 
-# --- KONFIGURACJA BAZY I AI ---
+# --- KONFIGURACJA BAZY ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_gsheets_client():
@@ -32,13 +31,12 @@ def get_gsheets_client():
 
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-pro-vision')
 except Exception as e:
     st.error("Brak konfiguracji klucza GEMINI_API_KEY w Streamlit Secrets.")
 
 # --- INTERFEJS APLIKACJI ---
 st.title("🤖 AI Skaner Projektów (OCR)")
-st.markdown("Wgraj zrzut ekranu z zewnętrznego systemu. Sztuczna Inteligencja przeczyta tabelę, wyodrębni Nazwy Targów oraz zignoruje śmieci przy Numerach Projektów, przygotowując gotowe dane do bazy.")
+st.markdown("Wgraj zrzut ekranu z zewnętrznego systemu. Sztuczna Inteligencja przeczyta tabelę i przygotuje gotowe dane do bazy.")
 
 uploaded_file = st.file_uploader("Wgraj zrzut ekranu (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
 
@@ -49,7 +47,9 @@ if uploaded_file is not None:
     if st.button("🔍 Skanuj Tabelę za pomocą AI", type="primary", use_container_width=True):
         with st.spinner("AI analizuje obraz i wyciąga dane... To zajmie kilka sekund."):
             try:
-                # Instrukcja dla modelu (Prompt)
+                # Inicjalizacja najnowszego, standardowego modelu
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                
                 prompt = """
                 Przeanalizuj to zdjęcie tabeli. Zwróć dane WYŁĄCZNIE w formacie JSON jako lista obiektów.
                 Dla każdego wiersza stwórz obiekt z dwoma kluczami:
@@ -60,7 +60,7 @@ if uploaded_file is not None:
                 
                 response = model.generate_content([prompt, image])
                 
-                # Czyszczenie odpowiedzi JSON (usuwanie ewentualnych znaczników markdown typu ```json )
+                # Czyszczenie odpowiedzi JSON
                 cleaned_response = response.text.strip()
                 if cleaned_response.startswith('```json'):
                     cleaned_response = cleaned_response[7:]
@@ -75,16 +75,23 @@ if uploaded_file is not None:
                     st.success(f"Zeskanowano pomyślnie {len(data)} projektów!")
                 else:
                     st.warning("AI nie znalazło żadnych danych w tabeli.")
+                    
             except Exception as e:
                 st.error(f"Błąd analizy AI: {e}")
-                st.write("Surowa odpowiedź AI (do debugowania):", response.text)
+                st.info("System diagnostyczny odpytuje serwery Google o listę dostępnych modeli dla Twojego klucza...")
+                try:
+                    # DIAGNOSTYKA: Pobieramy listę modeli przypisanych do Twojego klucza
+                    dostepne_modele = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    st.write("**Lista dostępnych modeli (Skopiuj ją i wyślij do mnie, dobierzemy odpowiedni!):**")
+                    st.write(dostepne_modele)
+                except Exception as diag_e:
+                    st.error(f"Błąd diagnostyki: {diag_e}. Upewnij się, że klucz API jest poprawny.")
 
 # --- EDYCJA I ZAPIS DANYCH ---
 if 'scanned_data' in st.session_state:
     st.markdown("### 📝 Krok 2: Weryfikacja i Zapis")
-    st.info("Sprawdź poniższe dane. Możesz kliknąć w każdą komórkę, aby poprawić ewentualne literówki przed zapisem do bazy.")
+    st.info("Sprawdź poniższe dane. Możesz poprawić literówki przed zapisem do bazy.")
     
-    # Edytowalna tabela
     edited_df = st.data_editor(st.session_state['scanned_data'], use_container_width=True, num_rows="dynamic")
     
     if st.button("💾 Zapisz zatwierdzone projekty do Google Sheets", type="primary"):
@@ -92,14 +99,10 @@ if 'scanned_data' in st.session_state:
             try:
                 client = get_gsheets_client()
                 worksheet = client.open_by_url(SHEET_URL).worksheet("Projekty")
-                
-                # Konwersja DataFrame do formatu wierszy
                 dane_do_zapisu = edited_df.values.tolist()
-                
-                # Zapisujemy wszystko hurtem na dół tabeli
                 worksheet.append_rows(dane_do_zapisu)
                 
-                st.success("Sukces! Projekty zostały dodane do bazy. Będą widoczne w listach rozwijanych we wszystkich modułach za ok. 60 sekund.")
+                st.success("Sukces! Projekty zostały dodane do bazy.")
                 del st.session_state['scanned_data']
             except Exception as e:
                 st.error(f"Błąd zapisu do bazy: {e}")
