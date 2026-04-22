@@ -48,7 +48,7 @@ if uploaded_file is not None:
         with st.spinner("AI analizuje obraz i wyciąga dane... To zajmie kilka sekund."):
             try:
                 # Inicjalizacja najnowszego, standardowego modelu
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('models/gemini-2.5-flash')
                 
                 prompt = """
                 Przeanalizuj to zdjęcie tabeli. Zwróć dane WYŁĄCZNIE w formacie JSON jako lista obiektów.
