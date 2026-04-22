@@ -63,3 +63,29 @@ def get_next_daily_number(prefix_date):
         dzisiejsze = df[df['Data wystawienia'].astype(str).str.startswith(prefix_date)]
         return len(dzisiejsze) + 1
     return 1
+
+# --- 6. AKTUALIZACJA ISTNIEJĄCYCH DANYCH ---
+def update_row(sheet_name, row_index, new_row_data):
+    """Aktualizuje konkretny wiersz w Google Sheets. row_index musi być numerem wiersza w arkuszu."""
+    try:
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        # row_index w gspread odpowiada fizycznemu numerowi wiersza (1, 2, 3...)
+        sheet.update(f"A{row_index}", [new_row_data])
+        fetch_data.clear() # Czyścimy cache, żeby zmiany były widoczne od razu
+        return True
+    except Exception as e:
+        st.error(f"⚠️ Błąd silnika (Update - {sheet_name}): {e}")
+        return False
+
+def delete_row(sheet_name, row_index):
+    """Usuwa wiersz z bazy danych."""
+    try:
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        sheet.delete_rows(row_index)
+        fetch_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"⚠️ Błąd silnika (Delete - {sheet_name}): {e}")
+        return False
