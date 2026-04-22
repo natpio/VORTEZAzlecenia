@@ -7,7 +7,7 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(layout="wide", page_title="Baza Kontrahentów | Zaopatrzenie")
 st.markdown("""<style>[data-testid="stSidebarNav"] {display: none !important;}</style>""", unsafe_allow_html=True)
 
-# ---> ZAKTUALIZOWANY PASEK BOCZNY (NAPRAWIONY LINK DO ZGŁOSZEŃ) <---
+# ---> PASEK BOCZNY <---
 with st.sidebar:
     st.markdown("<h2 style='color: #10b981;'>📦 ZAOPATRZENIE</h2>", unsafe_allow_html=True)
     st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
@@ -48,23 +48,39 @@ st.markdown("---")
 with st.expander("➕ KLIKNIJ TUTAJ, ABY DODAĆ NOWE MIEJSCE", expanded=False):
     with st.form("form_add_kontrahent"):
         st.info("Pamiętaj: Nazwa krótka (do listy) to ta, która będzie wyświetlać się w rozwijanym menu podczas zgłaszania zapotrzebowania.")
+        
+        # Wiersz 1: Nazwy
         c1, c2 = st.columns(2)
         nazwa_skrocona = c1.text_input("Nazwa krótka (do listy) *Wymagane")
         pelna_nazwa = c2.text_input("Pełna nazwa firmy / Magazynu")
         
-        d1, d2, d3 = st.columns(3)
+        # Wiersz 2: Adres (Rozdzielony kod i miasto!)
+        d1, d2, d3, d4 = st.columns([2, 1, 1.5, 1.5])
         ulica = d1.text_input("Ulica i numer")
-        miasto = d2.text_input("Kod pocztowy i Miasto")
-        kraj = d3.text_input("Kraj", value="Polska")
+        kod_pocztowy = d2.text_input("Kod pocztowy")
+        miasto = d3.text_input("Miasto")
+        kraj = d4.text_input("Kraj", value="Polska")
         
-        uwagi = st.text_input("Dodatkowe informacje (np. godziny otwarcia, nr tel. do magazyniera)")
+        # Wiersz 3: Nowe pola z Google Sheets
+        o1, o2 = st.columns([3, 1])
+        osoba_tel = o1.text_input("Osoba / Tel (np. P.Kowalski +48...)")
+        rampa = o2.selectbox("Rampa (TAK/NIE)", ["TAK", "NIE", "BRAK DANYCH"])
         
-        if st.form_submit_button("Zapisz Kontrahenta do Bazy"):
+        if st.form_submit_button("Zapisz Kontrahenta do Bazy", type="primary"):
             if nazwa_skrocona:
                 with st.spinner("Zapisywanie danych..."):
                     try:
-                        # Zapis do arkusza (dopasowane do struktury zakładki "Miejsca")
-                        nowy_wiersz = [nazwa_skrocona, pelna_nazwa, ulica, miasto, kraj, uwagi, ""]
+                        # IDEALNE DOPASOWANIE DO 8 KOLUMN W GOOGLE SHEETS
+                        nowy_wiersz = [
+                            nazwa_skrocona, 
+                            pelna_nazwa, 
+                            ulica, 
+                            kod_pocztowy, 
+                            miasto, 
+                            kraj, 
+                            osoba_tel, 
+                            rampa
+                        ]
                         get_gsheets_client().open_by_url(SHEET_URL).worksheet("Miejsca").append_row(nowy_wiersz)
                         
                         st.success(f"Dodano kontrahenta: '{nazwa_skrocona}'!")
