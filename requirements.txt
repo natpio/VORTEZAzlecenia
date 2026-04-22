@@ -6,3 +6,4 @@ gspread
 google-auth
 plotly
 Pillow
+google-generativeai
