@@ -28,7 +28,7 @@ st.markdown("<br><br>", unsafe_allow_html=True)
 col_cargo, col_space, col_zaop = st.columns([10, 1, 10])
 
 # ==========================================
-# FILAR 1: LOGISTYKA CARGO (TWOJE CENTRUM)
+# FILAR 1: LOGISTYKA CARGO
 # ==========================================
 with col_cargo:
     with st.container(border=True):
@@ -37,11 +37,9 @@ with col_cargo:
         
         st.markdown("---")
         
-        # Główne transporty na Targi
         if st.button("🚛 DYSPOZYCJA FLOTY (TARGI)", use_container_width=True):
             st.switch_page("pages/1_🚛_Dyspozycja_Floty.py")
             
-        # TWOJE NOWE NARZĘDZIE DO WYCEN I PDF:
         if st.button("🛠️ OBSŁUGA ZAOPATRZENIA (WYCENY I ZLECENIA)", use_container_width=True, type="primary"):
             st.switch_page("pages/8_🛠️_Obsluga_Zaopatrzenia.py")
             
@@ -72,6 +70,20 @@ with col_zaop:
             
         if st.button("🏢 BAZA KONTRAHENTÓW / MIEJSC", use_container_width=True):
             st.switch_page("pages/7_🏢_Baza_Kontrahentow.py")
+
+# ==========================================
+# FILAR 3: NARZĘDZIA AI (NOWOŚĆ)
+# ==========================================
+st.markdown("<br>", unsafe_allow_html=True)
+with st.container(border=True):
+    st.markdown("<h2 style='text-align: center; color: #8b5cf6;'>🤖 INTELIGENTNE NARZĘDZIA (AI)</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748b;'>Automatyzacja procesów za pomocą modeli sztucznej inteligencji.</p>", unsafe_allow_html=True)
+    
+    # Przycisk na środku
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if st.button("🔍 AI SKANER PROJEKTÓW (Zrzuty ekranu)", use_container_width=True):
+            st.switch_page("pages/9_🤖_AI_Skaner_Projektow.py")
 
 # --- STOPKA SYSTEMOWA ---
 st.markdown("<br><br>", unsafe_allow_html=True)
