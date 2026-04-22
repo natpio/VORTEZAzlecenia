@@ -1,15 +1,16 @@
 import streamlit as st
 import pandas as pd
 import qrcode
-import io
 from fpdf import FPDF
 from datetime import datetime
+import tempfile
+import os
 
 # Importujemy silnik Vortex
 from core import fetch_data
 
 # --- KONFIGURACJA DOKUMENTU ---
-def generate_cmr_v3(data, qr_img):
+def generate_cmr_v3(data, qr_img_path):
     """Generuje 3-stronny dokument CMR (Standard International)."""
     pdf = FPDF()
     strony = [
@@ -75,7 +76,8 @@ def generate_cmr_v3(data, qr_img):
         pdf.set_xy(12, 140)
         pdf.multi_cell(180, 7, f"GOODS: {data['towar']}\nQUANTITY: As per packing list\nINSTRUCTIONS: {data['uwagi']}")
 
-        pdf.image(qr_img, 165, 185, 30, 30)
+        # Wczytujemy fizyczny plik tymczasowy zamiast danych z RAM
+        pdf.image(qr_img_path, 165, 185, 30, 30)
         pdf.set_xy(10, 200)
         pdf.set_font("Arial", 'B', 12)
         pdf.cell(0, 10, f"REF NR: {data['nr']}", ln=True)
@@ -92,11 +94,10 @@ with st.spinner("Ładowanie rejestru zleceń..."):
     df = fetch_data("Zlecenia")
 
 if not df.empty:
-    # NAPRAWA: Zmieniono 'Dział' na 'Typ transportu' == 'TARGI'
     if 'Typ transportu' in df.columns:
         df_cargo = df[df['Typ transportu'] == 'TARGI'].iloc[::-1]
     else:
-        df_cargo = df.copy() # Awaryjnie pokaż wszystko jeśli brakuje kolumny
+        df_cargo = df.copy()
     
     if not df_cargo.empty:
         with st.container(border=True):
@@ -126,28 +127,36 @@ if not df.empty:
                 "uwagi": str(r.get('Uwagi / Instrukcje', ''))
             }
 
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(f"VORTEX-CMR-{wybor}")
-            qr.make(fit=True)
-            img_qr = qr.make_image(fill_color="black", back_color="white")
-            
-            qr_buffer = io.BytesIO()
-            img_qr.save(qr_buffer, format="PNG")
-            qr_buffer.seek(0)
-
             st.markdown("<br>", unsafe_allow_html=True)
             
             if st.button("🛠️ PRZYGOTUJ PAKIET CMR", type="primary", use_container_width=True):
-                with st.spinner("Składanie dokumentów..."):
-                    pdf_bytes = generate_cmr_v3(dane_doc, qr_buffer)
-                    st.success("✅ Pakiet CMR (3 strony) jest gotowy do pobrania!")
-                    st.download_button(
-                        label="📥 POBIERZ DOKUMENT PDF",
-                        data=pdf_bytes,
-                        file_name=f"CMR_{wybor.replace('/', '_')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
+                with st.spinner("Składanie dokumentów i generowanie QR..."):
+                    # Generowanie QR Code
+                    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+                    qr.add_data(f"VORTEX-CMR-{wybor}")
+                    qr.make(fit=True)
+                    img_qr = qr.make_image(fill_color="black", back_color="white")
+                    
+                    # Zapisywanie do bezpiecznego pliku tymczasowego
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                        img_qr.save(tmp, format="PNG")
+                        qr_path = tmp.name
+                    
+                    try:
+                        # Generowanie PDFa z użyciem pliku z dysku
+                        pdf_bytes = generate_cmr_v3(dane_doc, qr_path)
+                        st.success("✅ Pakiet CMR (3 strony) jest gotowy do pobrania!")
+                        st.download_button(
+                            label="📥 POBIERZ DOKUMENT PDF",
+                            data=pdf_bytes,
+                            file_name=f"CMR_{wybor.replace('/', '_')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    finally:
+                        # Kasujemy plik tymczasowy żeby nie śmiecić na serwerze
+                        if os.path.exists(qr_path):
+                            os.remove(qr_path)
     else:
         st.info("Brak aktywnych zleceń Cargo w bazie.")
 else:
