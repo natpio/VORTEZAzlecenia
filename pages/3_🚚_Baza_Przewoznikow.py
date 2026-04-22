@@ -1,91 +1,61 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
+
+# Importujemy silnik Vortex
+from core import fetch_data, append_data
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(layout="wide", page_title="Baza Przewoźników | Cargo")
+st.markdown("<h1 style='color: #38bdf8;'>🚚 BAZA PRZEWOŹNIKÓW CARGO</h1>", unsafe_allow_html=True)
+st.markdown("<p style='color: #94a3b8;'>Zarządzanie flotą podwykonawców i ich danymi kontaktowymi.</p>", unsafe_allow_html=True)
 
-# --- UKRYCIE DOMYŚLNEGO MENU I DEDYKOWANY PASEK BOCZNY (CARGO) ---
-st.markdown("""
-    <style>
-        [data-testid="stSidebarNav"] {display: none !important;}
-    </style>
-""", unsafe_allow_html=True)
-
-with st.sidebar:
-    st.markdown("<h2 style='color: #38bdf8;'>🚛 LOGISTYKA CARGO</h2>", unsafe_allow_html=True)
-    st.page_link("app.py", label="⬅ Wróć do Menu Głównego")
-    st.divider()
-    st.page_link("pages/1_🚛_Dyspozycja_Floty.py", label="Dyspozycja Floty (TARGI)")
-    st.page_link("pages/8_🛠️_Obsluga_Zaopatrzenia.py", label="Obsługa Zaopatrzenia")
-    st.page_link("pages/2_📄_Terminal_CMR.py", label="Terminal CMR")
-    st.page_link("pages/3_🚚_Baza_Przewoznikow.py", label="Baza Przewoźników Cargo")
-    st.page_link("pages/4_📊_Historia_Zlecen_Cargo.py", label="Historia Zleceń Cargo")
-
-# --- KONFIGURACJA BAZY DANYCH ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
-
-def get_gsheets_client():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    return gspread.authorize(creds)
-
-@st.cache_data(ttl=60)
-def load_przewoznicy():
-    """Pobiera wszystkie dane z zakładki Zleceniobiorcy"""
-    try:
-        client = get_gsheets_client()
-        spreadsheet = client.open_by_url(SHEET_URL)
-        return pd.DataFrame(spreadsheet.worksheet("Zleceniobiorcy").get_all_records())
-    except Exception as e:
-        st.error(f"Błąd łączenia z arkuszem Zleceniobiorcy: {e}")
-        return pd.DataFrame()
-
-# --- INTERFEJS APLIKACJI ---
-st.title("🚚 Zarządzanie Bazą Przewoźników Cargo")
-st.markdown("Słownik głównych firm transportowych obsługujących wyjazdy na eventy. Firmy dodane tutaj będą dostępne w Dyspozycji Floty.")
-
+# Przycisk szybkiego odświeżenia bazy (czyści cache Streamlita)
 col_btn, col_empty = st.columns([1, 4])
 with col_btn:
-    if st.button("🔄 Odśwież bazę z Google Sheets", use_container_width=True):
+    if st.button("🔄 Odśwież bazę z chmury", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
 st.markdown("---")
 
 # --- FORMULARZ DODAWANIA NOWEGO PRZEWOŹNIKA ---
+# Używamy expandera, żeby formularz nie zajmował ekranu, gdy tylko przeglądasz bazę
 with st.expander("➕ KLIKNIJ TUTAJ, ABY DODAĆ NOWEGO PRZEWOŹNIKA", expanded=False):
-    with st.form("form_nowy_przewoznik"):
-        st.info("Pamiętaj: Skrócona nazwa to ta, którą będziesz wybierać z listy w innych modułach. Pełna nazwa wydrukuje się na dokumentach oficjalnych.")
-        col1, col2 = st.columns(2)
-        with col1:
-            skrot = st.text_input("Skrócona nazwa do listy (np. Trans-Pol)")
-            pelna_nazwa = st.text_area("Pełna nazwa firmy i NIP (np. Trans-Pol Sp. z o.o., NIP: 123456)")
-            nip = st.text_input("NIP (osobno)")
-        with col2:
-            ulica = st.text_input("Ulica i numer")
-            miasto = st.text_input("Kod pocztowy i Miasto")
-            kraj = st.text_input("Kraj", value="Polska")
-            pojazd = st.text_input("Domyślny pojazd i kierowca (Opcjonalnie)")
-            
-        submit = st.form_submit_button("Zapisz Przewoźnika do Bazy (Google Sheets)")
+    with st.form("add_carrier_form", border=False):
+        st.info("Pamiętaj: Nazwa krótka (Skrót) będzie wyświetlana na listach rozwijanych w głównym kreatorze zleceń.")
+        
+        c1, c2 = st.columns(2)
+        skrot = c1.text_input("Nazwa krótka (Skrót) *Wymagane")
+        pelna_nazwa = c2.text_input("Pełna nazwa firmy *Wymagane")
+        
+        c3, c4 = st.columns(2)
+        nip = c3.text_input("NIP (Opcjonalnie)")
+        pojazd = c4.text_input("Domyślny pojazd i kierowca (Opcjonalnie)", placeholder="np. PO 12345 / Jan Kowalski")
+
+        d1, d2, d3 = st.columns([2, 2, 1])
+        ulica = d1.text_input("Ulica i numer")
+        miasto = d2.text_input("Kod pocztowy i Miasto")
+        kraj = d3.text_input("Kraj", value="Polska")
+        
+        submit = st.form_submit_button("💾 Zapisz Przewoźnika do Bazy", type="primary")
         
         if submit:
             if skrot and pelna_nazwa:
-                with st.spinner("Zapisywanie do chmury..."):
-                    # Kolejność zapisu odpowiada domyślnym kolumnom w Twoim arkuszu "Zleceniobiorcy"
+                with st.spinner("Wysyłanie danych do Vortex Engine..."):
+                    # Dokładna kolejność zapisu odpowiadająca kolumnom w Twoim arkuszu
                     nowy_wiersz = [skrot, pelna_nazwa, ulica, miasto, kraj, nip, pojazd]
-                    get_gsheets_client().open_by_url(SHEET_URL).worksheet("Zleceniobiorcy").append_row(nowy_wiersz)
-                    st.cache_data.clear() 
-                    st.success(f"Sukces! Dodano firmę '{skrot}' do bazy.")
-                    st.rerun()
+                    
+                    if append_data("Zleceniobiorcy", nowy_wiersz):
+                        st.success(f"Dodano firmę '{skrot}' do bazy!")
+                        st.rerun()
+                    else:
+                        st.error("Wystąpił problem z zapisem. Sprawdź logi systemowe.")
             else:
-                st.warning("⚠️ Skrócona nazwa oraz Pełna nazwa są wymagane!")
+                st.warning("⚠️ Pola 'Nazwa krótka' oraz 'Pełna nazwa' są absolutnie wymagane!")
 
-# --- WYŚWIETLANIE BAZY W TABELI ---
-st.markdown("### 📋 Twoi Przewoźnicy Cargo")
-df_przewoznicy = load_przewoznicy()
+# --- WYŚWIETLANIE TABELI ---
+st.markdown("### 📋 Aktualna Lista Przewoźników")
+with st.spinner("Pobieranie telemetrii..."):
+    df_przewoznicy = fetch_data("Zleceniobiorcy")
 
 if not df_przewoznicy.empty:
     st.dataframe(
@@ -94,6 +64,8 @@ if not df_przewoznicy.empty:
         hide_index=True,
         height=500
     )
-    st.caption(f"Łącznie przewoźników w bazie: {len(df_przewoznicy)}")
+    st.caption(f"Łącznie aktywnych przewoźników w systemie: {len(df_przewoznicy)}")
 else:
-    st.info("Baza przewoźników jest pusta. Dodaj pierwszą firmę korzystając z formularza powyżej.")
+    st.info("Baza przewoźników jest w tej chwili pusta. Dodaj pierwszy wpis używając formularza powyżej.")
+
+st.caption("Vortex Nexus 3.0 | Module: Carrier Database")
