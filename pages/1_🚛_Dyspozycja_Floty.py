@@ -87,7 +87,7 @@ with tab_targi:
             t1, t2, t3 = st.columns(3)
             typ_auta = t1.selectbox("Rodzaj naczepy:", ["MEGA", "Standard", "Zestaw 120m3", "Solo", "Bus"])
             miejsce_zal = t2.text_input("Start:", value="Magazyn Komorniki")
-            czysta_nazwa_eventu = wybrany_projekt_full.split(" (")[0]
+            czysta_nazwa_eventu = wybrany_projekt_full.split(" (")[0] if "Brak" not in wybrany_projekt_full else "Brak"
             miejsce_roz = t3.text_input("Cel:", value=f"Targi - {czysta_nazwa_eventu}")
 
             st.markdown("#### 📅 Harmonogram Cyklu")
@@ -156,51 +156,54 @@ with tab_zaopatrzenie:
             wiersz_danych = df_zaop_gotowe[df_zaop_gotowe['Numer zlecenia'] == wybrane_zlecenie_zaop].iloc[0]
             
             with c_form:
-                with st.form("form_pdf_zaop"):
+                with st.container(border=True): # Używamy zwykłego kontenera zamiast formularza
                     st.write(f"**Przewoźnik:** {wiersz_danych.get('Zleceniobiorca', 'Brak')}")
                     st.write(f"**Trasa:** {wiersz_danych.get('Miejsce Zaladunku', '')} ➡️ {wiersz_danych.get('Miejsce Rozladunku', '')}")
                     
-                    # Logistyk uzupełnia dane auta tuż przed wysyłką PDFa
                     st.markdown("---")
                     dane_kierowcy = st.text_input("Wpisz numery rejestracyjne i dane kierowcy (opcjonalnie):", placeholder="np. PO 12345 / Jan Kowalski")
                     
-                    if st.form_submit_button("💾 ZAPISZ AUTO I GENERUJ PDF", type="primary", use_container_width=True):
-                        idx = df_zlecenia[df_zlecenia['Numer zlecenia'] == wybrane_zlecenie_zaop].index[0]
-                        sheet_row = int(idx) + 2
-                        
-                        uwagi_kol = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df_zlecenia.columns else df_zlecenia.columns[13]
-                        stare_uwagi = str(df_zlecenia.at[idx, uwagi_kol])
-                        nowe_uwagi = f"AUTO: {dane_kierowcy} || {stare_uwagi}" if dane_kierowcy else stare_uwagi
-                        
-                        # Zapis w arkuszu
-                        try:
-                            client = get_gsheets_client()
-                            sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit").worksheet("Zlecenia")
-                            sheet.update_cell(sheet_row, 14, nowe_uwagi)
-                            fetch_data.clear()
-                            st.success("Zapisano dane auta!")
-                        except Exception as e:
-                            st.error(f"Błąd zapisu auta: {e}")
-                            
-                        # Po zapisie od razu przygotowujemy PDF
-                        dane_pdf = {
-                            "nr": str(wybrane_zlecenie_zaop),
-                            "przewoznik": str(wiersz_danych.get('Zleceniobiorca', '')),
-                            "zaladunek": str(wiersz_danych.get('Miejsce Zaladunku', '')),
-                            "rozladunek": str(wiersz_danych.get('Miejsce Rozladunku', '')),
-                            "data_zal": str(wiersz_danych.get('Data Zaladunku', '')),
-                            "opis": str(wiersz_danych.get('Towar', 'Sprzęt')),
-                            "auto": nowe_uwagi,
-                            "stawka": str(wiersz_danych.get(nazwa_kol_stawka, ''))
-                        }
-                        
-                        gotowy_pdf = generate_transport_order_pdf(dane_pdf)
+                    # LOGIKA PRZETWARZANIA DANYCH W TLE
+                    idx = df_zlecenia[df_zlecenia['Numer zlecenia'] == wybrane_zlecenie_zaop].index[0]
+                    sheet_row = int(idx) + 2
+                    
+                    uwagi_kol = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df_zlecenia.columns else df_zlecenia.columns[13]
+                    stare_uwagi = str(df_zlecenia.at[idx, uwagi_kol])
+                    nowe_uwagi = f"AUTO: {dane_kierowcy} || {stare_uwagi}" if dane_kierowcy else stare_uwagi
+                    
+                    dane_pdf = {
+                        "nr": str(wybrane_zlecenie_zaop),
+                        "przewoznik": str(wiersz_danych.get('Zleceniobiorca', '')),
+                        "zaladunek": str(wiersz_danych.get('Miejsce Zaladunku', '')),
+                        "rozladunek": str(wiersz_danych.get('Miejsce Rozladunku', '')),
+                        "data_zal": str(wiersz_danych.get('Data Zaladunku', '')),
+                        "opis": str(wiersz_danych.get('Towar', 'Sprzęt')),
+                        "auto": nowe_uwagi,
+                        "stawka": str(wiersz_danych.get(nazwa_kol_stawka, ''))
+                    }
+                    
+                    gotowy_pdf = generate_transport_order_pdf(dane_pdf)
+                    
+                    # DWA PRZYCISKI OBOK SIEBIE
+                    c_btn_zap, c_btn_pob = st.columns(2)
+                    
+                    with c_btn_zap:
+                        if st.button("💾 ZAPISZ AUTO DO BAZY", type="primary", use_container_width=True):
+                            try:
+                                client = get_gsheets_client()
+                                sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit").worksheet("Zlecenia")
+                                sheet.update_cell(sheet_row, 14, nowe_uwagi)
+                                fetch_data.clear() # Czyści cache
+                                st.success("Zapisano!")
+                            except Exception as e:
+                                st.error(f"Błąd zapisu: {e}")
+                                
+                    with c_btn_pob:
                         st.download_button(
-                            label="📥 POBIERZ ZLECENIE PDF DLA PRZEWOŹNIKA", 
+                            label="📥 POBIERZ PDF ZLECENIA", 
                             data=gotowy_pdf, 
                             file_name=f"Zlecenie_{wybrane_zlecenie_zaop.replace('/', '_')}.pdf", 
                             mime="application/pdf", 
-                            type="primary", 
                             use_container_width=True
                         )
         else:
