@@ -2,11 +2,14 @@ import streamlit as st
 from datetime import datetime
 import pandas as pd
 from fpdf import FPDF
+import qrcode
+import tempfile
+import os
 
 # Importujemy silnik Vortex
 from core import fetch_data, append_data, get_next_daily_number, get_gsheets_client
 
-# --- GENERATOR PDF DLA PRZEWOŹNIKA ---
+# --- PROFESJONALNY GENERATOR PDF DLA PRZEWOŹNIKA ---
 def generate_transport_order_pdf(dane):
     def sanitize(text):
         replacements = {'ą':'a', 'ć':'c', 'ę':'e', 'ł':'l', 'ń':'n', 'ó':'o', 'ś':'s', 'ź':'z', 'ż':'z',
@@ -17,28 +20,112 @@ def generate_transport_order_pdf(dane):
 
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 15, sanitize(f"ZLECENIE TRANSPORTOWE NR: {dane['nr']}"), ln=True, align="C")
     
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(0, 10, sanitize(f"Data wygenerowania: {datetime.now().strftime('%Y-%m-%d %H:%M')}"), ln=True, align="R")
-    pdf.line(10, 35, 200, 35)
-    pdf.ln(10)
+    # 1. LOGO SQM
+    try:
+        pdf.image("logosqm.png", 10, 8, 45)
+    except Exception:
+        pass # Ignoruj jeśli pliku brak w repozytorium
+        
+    # 2. KOD QR
+    qr = qrcode.QRCode(version=1, box_size=10, border=1)
+    qr.add_data(f"VORTEX-ZLECENIE-{dane.get('nr', 'UNKNOWN')}")
+    qr.make(fit=True)
+    img_qr = qr.make_image(fill_color="black", back_color="white")
     
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, sanitize("SZCZEGOLY OPERACYJNE:"), ln=True)
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(0, 8, sanitize(f"Zleceniobiorca (Przewoznik): {dane['przewoznik']}"), ln=True)
-    pdf.cell(0, 8, sanitize(f"Miejsce Zaladunku: {dane['zaladunek']}"), ln=True)
-    pdf.cell(0, 8, sanitize(f"Miejsce Rozladunku: {dane['rozladunek']}"), ln=True)
-    pdf.cell(0, 8, sanitize(f"Data Gotowosci / Zaladunku: {dane['data_zal']}"), ln=True)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+        img_qr.save(tmp, format="PNG")
+        qr_path = tmp.name
+        
+    try:
+        pdf.image(qr_path, 175, 8, 25)
+    except Exception:
+        pass
+    finally:
+        if os.path.exists(qr_path):
+            os.remove(qr_path)
+            
+    # 3. NAGŁÓWEK DOKUMENTU
+    pdf.set_xy(10, 35)
+    pdf.set_font("Arial", 'B', 15)
+    pdf.cell(0, 10, sanitize("ZLECENIE TRANSPORTOWE / TRANSPORT ORDER"), ln=True, align="C")
+    pdf.set_font("Arial", '', 9)
+    pdf.cell(0, 5, sanitize(f"DATA WYSTAWIENIA / ISSUE DATE: {datetime.now().strftime('%d.%m.%Y')}"), ln=True, align="C")
     pdf.ln(5)
+
+    # 4. FUNKCJA RYSUJĄCA TABELĘ
+    def add_row(left_text, right_text, right_bold=False):
+        left = sanitize(left_text)
+        right = sanitize(str(right_text))
+        right = right.replace('\r\n', '\n')
+        
+        # Obliczanie wymaganej wysokości wiersza (ok. 75 znaków w linii)
+        lines = 0
+        for paragraph in right.split('\n'):
+            if len(paragraph) == 0:
+                lines += 1
+            else:
+                lines += (len(paragraph) // 75) + 1
+                
+        row_h = lines * 5 + 4 # 5mm na linię tekstu + 4mm paddingu
+        if row_h < 8: row_h = 8
+        
+        x = pdf.get_x()
+        y = pdf.get_y()
+        
+        # Zabezpieczenie przed ucięciem tabeli na końcu strony
+        if y + row_h > 280:
+            pdf.add_page()
+            y = pdf.get_y()
+        
+        # Lewa komórka (Szare tło nagłówka)
+        pdf.set_font("Arial", 'B', 8)
+        pdf.set_fill_color(240, 240, 240)
+        pdf.rect(x, y, 70, row_h, style='DF')
+        pdf.set_xy(x, y + (row_h/2) - 2) # Pionowe centrowanie tekstu
+        pdf.cell(70, 4, left, align='C')
+        
+        # Prawa komórka (Białe tło wartości)
+        pdf.set_xy(x + 70, y)
+        pdf.rect(x + 70, y, 120, row_h)
+        pdf.set_font("Arial", 'B' if right_bold else '', 9)
+        pdf.set_xy(x + 72, y + 2) # Lekki margines tekstu
+        pdf.multi_cell(116, 5, right)
+        
+        pdf.set_xy(10, y + row_h)
+
+    # 5. ROZDZIELANIE DANYCH (Auto vs Uwagi)
+    uwagi_parts = dane.get('auto', '').split("||")
+    dane_kierowcy = ""
+    uwagi_czyste = dane.get('auto', '')
+
+    if len(uwagi_parts) > 1 and "AUTO:" in uwagi_parts[0]:
+        dane_kierowcy = uwagi_parts[0].replace("AUTO:", "").strip()
+        uwagi_czyste = " || ".join(uwagi_parts[1:]).strip()
+    elif "AUTO:" in dane.get('auto', ''):
+        dane_kierowcy = dane.get('auto', '').replace("AUTO:", "").strip()
+        uwagi_czyste = ""
+
+    # Sklejamy pełny opis ładunku
+    ladunek_tekst = f"{dane.get('opis', '')}\n{uwagi_czyste}".strip()
+
+    # 6. BUDOWA STRUKTURY TABELI ZGODNIE Z WZOREM
+    add_row("NUMER ZLECENIA / ORDER NUMBER", dane.get('nr', ''), True)
+    add_row("ZLECENIODAWCA / PRINCIPAL", "SQM Prosta Spółka Akcyjna\nul. Poznańska 165, 62-052 Komorniki\nNIP: 7792361182", True)
+    add_row("MIEJSCE ZAŁADUNKU / LOADING PLACE", dane.get('zaladunek', ''))
+    add_row("ZLECENIOBIORCA / CONTRACTOR", dane.get('przewoznik', ''), True)
+    add_row("LADUNEK / CARGO", ladunek_tekst)
+    add_row("UWAGI DO TRANSPORTU / TRANSPORT NOTES", "Towar musi zostać zabezpieczony pasami transportowymi. / The goods must be secured with transport belts.")
+    add_row("MIEJSCE ROZLADUNKU / UNLOADING PLACE", dane.get('rozladunek', ''))
+    add_row("KOSZT / COST", f"{dane.get('stawka', '')} PLN", True)
+    add_row("DATA ZALADUNKU / LOADING DATE", dane.get('data_zal', ''))
     
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, sanitize("KOSZTY I WARUNKI:"), ln=True)
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(0, 8, sanitize(f"Ustalona stawka netto: {dane['stawka']}"), ln=True)
-    pdf.multi_cell(0, 8, sanitize(f"Uwagi i dane auta: {dane['auto']} - {dane['opis']}"))
+    if dane.get('data_roz'):
+        add_row("DATA DOSTAWY / DELIVERY DATE", dane.get('data_roz', ''))
+        
+    add_row("DANE POJAZDU I KIEROWCY / VEHICLE & DRIVER", dane_kierowcy, True)
+    add_row("TERMIN PLATNOSCI / MATURITY", "30 dni / days")
+    add_row("POSTANOWIENIA SPECJALNE / SPECIAL PROVISIONS", "Parking strzeżony. Obsługa imprez masowych. / Guarded parking. Mass event services.")
     
     return bytes(pdf.output(dest='S').encode('latin1'))
 
@@ -68,10 +155,10 @@ else:
 
 
 # --- PODZIAŁ NA DWA RODZAJE TRANSPORTU ---
-tab_targi, tab_zaopatrzenie = st.tabs(["🏗️ TRANSPORT TARGOWY (Pełny cykl)", "📦 TRANSPORT ZAOPATRZENIA (Zlecenia PDF)"])
+tab_targi, tab_zaopatrzenie = st.tabs(["🏗️ TRANSPORT TARGOWY", "📦 TRANSPORT ZAOPATRZENIA"])
 
 # =================================================================
-# ZAKŁADKA 1: TARGI (Kreator pełny)
+# ZAKŁADKA 1: TARGI (Pełny cykl)
 # =================================================================
 with tab_targi:
     st.info("Kreator pełnych cykli transportowych na budowę stoisk targowych.")
@@ -107,7 +194,7 @@ with tab_targi:
             auto_dane = k2.text_input("Dane auta / kierowcy:", placeholder="np. PO 12345 / Jan Kowalski")
             instrukcje = k3.text_area("Dodatkowe instrukcje:", height=68)
 
-            submit = st.form_submit_button("🚀 GENERUJ ZLECENIE (Baza danych)", use_container_width=True, type="primary")
+            submit = st.form_submit_button("🚀 GENERUJ ZLECENIE W BAZIE", use_container_width=True, type="primary")
 
     if submit:
         if "Brak" in wybrany_projekt_full:
@@ -121,7 +208,7 @@ with tab_targi:
                 final_nr = f"{pref}{rok}/{data_kod}/{logistyk}{dzisiejszy_index:02d}"
                 
                 harmonogram = f"CYKL: {d_zal_pl} -> {d_roz_targi} | EMP: {d_emp_in}/{d_emp_out} | POWRÓT: {d_zal_powr} -> {d_roz_pl}"
-                pelne_uwagi = f"{instrukcje} || AUTO: {auto_dane} || {harmonogram}"
+                pelne_uwagi = f"AUTO: {auto_dane} || Logistyk: {logistyk} | {instrukcje} | {harmonogram}"
                 
                 wiersz = [
                     datetime.now().strftime("%Y-%m-%d %H:%M"), final_nr, "LOGISTYKA CARGO", wybrany_przewoznik,
@@ -130,8 +217,38 @@ with tab_targi:
                 ]
                 
                 if append_data("Zlecenia", wiersz):
-                    st.success(f"✅ Zapisano pod numerem: {final_nr}. Przejdź do Terminala CMR, aby wygenerować dokumenty.")
+                    st.success(f"✅ Zapisano pod numerem: {final_nr}.")
                     st.balloons()
+
+    st.markdown("---")
+    st.subheader("📄 Generuj Zlecenie PDF dla Przewoźnika (Targi)")
+    
+    if not df_zlecenia.empty and 'Typ transportu' in df_zlecenia.columns:
+        df_targi = df_zlecenia[df_zlecenia['Typ transportu'] == 'TARGI'].iloc[::-1].head(50)
+        
+        if not df_targi.empty:
+            c_sel_t, c_btn_t = st.columns([3, 1])
+            lista_nr_targi = df_targi['Numer zlecenia'].tolist()
+            wybrane_targi_nr = c_sel_t.selectbox("Wybierz ostatnie zlecenia Targowe do druku:", lista_nr_targi)
+            
+            wiersz_targi = df_targi[df_targi['Numer zlecenia'] == wybrane_targi_nr].iloc[0]
+            
+            dane_pdf_targi = {
+                "nr": str(wybrane_targi_nr),
+                "przewoznik": str(wiersz_targi.get('Zleceniobiorca', '')),
+                "zaladunek": str(wiersz_targi.get('Miejsce Zaladunku', '')),
+                "rozladunek": str(wiersz_targi.get('Miejsce Rozladunku', '')),
+                "data_zal": str(wiersz_targi.get('Data Zaladunku', '')),
+                "data_roz": str(wiersz_targi.get('Data Rozladunku', '')),
+                "opis": str(wiersz_targi.get('Towar', 'Elementy Zabudowy')),
+                "auto": str(wiersz_targi.get('Uwagi / Instrukcje', '')),
+                "stawka": str(wiersz_targi.get('Stawka', ''))
+            }
+            
+            gotowy_pdf_targi = generate_transport_order_pdf(dane_pdf_targi)
+            
+            with c_btn_t:
+                st.download_button("📥 POBIERZ PDF ZLECENIA", data=gotowy_pdf_targi, file_name=f"Zlecenie_{wybrane_targi_nr.replace('/', '_')}.pdf", mime="application/pdf", type="primary", use_container_width=True)
 
 
 # =================================================================
@@ -156,7 +273,7 @@ with tab_zaopatrzenie:
             wiersz_danych = df_zaop_gotowe[df_zaop_gotowe['Numer zlecenia'] == wybrane_zlecenie_zaop].iloc[0]
             
             with c_form:
-                with st.container(border=True): # Używamy zwykłego kontenera zamiast formularza
+                with st.container(border=True):
                     st.write(f"**Przewoźnik:** {wiersz_danych.get('Zleceniobiorca', 'Brak')}")
                     st.write(f"**Trasa:** {wiersz_danych.get('Miejsce Zaladunku', '')} ➡️ {wiersz_danych.get('Miejsce Rozladunku', '')}")
                     
@@ -177,6 +294,7 @@ with tab_zaopatrzenie:
                         "zaladunek": str(wiersz_danych.get('Miejsce Zaladunku', '')),
                         "rozladunek": str(wiersz_danych.get('Miejsce Rozladunku', '')),
                         "data_zal": str(wiersz_danych.get('Data Zaladunku', '')),
+                        "data_roz": str(wiersz_danych.get('Data Rozladunku', '')) if 'Data Rozladunku' in wiersz_danych else "",
                         "opis": str(wiersz_danych.get('Towar', 'Sprzęt')),
                         "auto": nowe_uwagi,
                         "stawka": str(wiersz_danych.get(nazwa_kol_stawka, ''))
@@ -184,9 +302,7 @@ with tab_zaopatrzenie:
                     
                     gotowy_pdf = generate_transport_order_pdf(dane_pdf)
                     
-                    # DWA PRZYCISKI OBOK SIEBIE
                     c_btn_zap, c_btn_pob = st.columns(2)
-                    
                     with c_btn_zap:
                         if st.button("💾 ZAPISZ AUTO DO BAZY", type="primary", use_container_width=True):
                             try:
