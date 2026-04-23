@@ -51,9 +51,15 @@ with st.spinner("Pobieranie zgłoszeń..."):
 
 lista_przewoznikow = df_przewoznicy['Skrócona Nazwa'].tolist() if not df_przewoznicy.empty else ["Brak danych"]
 
-if not df_zlecenia.empty and 'Dział' in df_zlecenia.columns:
-    df_zaopatrzenie = df_zlecenia[df_zlecenia['Dział'] == 'ZAOPATRZENIE']
-    df_do_wyceny = df_zaopatrzenie[df_zaopatrzenie['Stawka'].astype(str) == '0']
+if not df_zlecenia.empty:
+    # KULOODPORNY FILTR: Szukamy po indeksie kolumny (trzecia kolumna to index 2), ignorujemy jej nazwę
+    nazwa_kolumny_dzial = df_zlecenia.columns[2]
+    df_zaopatrzenie = df_zlecenia[df_zlecenia[nazwa_kolumny_dzial] == 'ZAOPATRZENIE']
+    
+    # Obsługa kolumny Stawka (nawet jeśli ma spację na końcu, po prostu bierzemy 18-stą kolumnę)
+    nazwa_kolumny_stawka = 'Stawka' if 'Stawka' in df_zlecenia.columns else df_zlecenia.columns[17]
+    
+    df_do_wyceny = df_zaopatrzenie[df_zaopatrzenie[nazwa_kolumny_stawka].astype(str) == '0']
     
     c1, c2 = st.columns(2)
     c1.error(f"🔴 Do pilnej wyceny: **{len(df_do_wyceny)}**")
@@ -76,8 +82,8 @@ if not df_zlecenia.empty and 'Dział' in df_zlecenia.columns:
                     w1, w2, w3, w4 = st.columns([2, 2, 1, 1])
                     wybrane_zlecenie = w1.selectbox("Wybierz zlecenie:", lista_zlecen_do_wyboru)
                     wybrany_przewoznik = w2.selectbox("Wybierz przewoźnika:", lista_przewoznikow)
-                    stawka = w3.number_input("Stawka:", min_value=1.0, step=50.0)
-                    logistyk = w4.radio("Twój podpis:", ["PD", "PK"]) # Logistyk wybiera siebie tutaj!
+                    stawka = w3.number_input("Stawka netto:", min_value=1.0, step=50.0)
+                    logistyk = w4.radio("Twój podpis:", ["PD", "PK"])
                     
                     submit_wycena = st.form_submit_button("✅ ZATWIERDŹ I PRZEJMIJ ZLECENIE", type="primary", use_container_width=True)
 
@@ -87,14 +93,15 @@ if not df_zlecenia.empty and 'Dział' in df_zlecenia.columns:
                         idx = df_zlecenia[df_zlecenia['Numer zlecenia'] == wybrane_zlecenie].index[0]
                         sheet_row = int(idx) + 2 
                         
-                        # Pobieramy stare uwagi z DataFrame, żeby ich nie nadpisać
-                        stare_uwagi = str(df_zlecenia.at[idx, 'Uwagi / Instrukcje'] if 'Uwagi / Instrukcje' in df_zlecenia.columns else "")
+                        # Pobieranie aktualnych uwag bez używania konkretnego nagłówka (to 14. kolumna, czyli indeks 13)
+                        uwagi_kolumna = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df_zlecenia.columns else df_zlecenia.columns[13]
+                        stare_uwagi = str(df_zlecenia.at[idx, uwagi_kolumna])
                         nowe_uwagi = f"Opiekun: {logistyk} | {stare_uwagi}"
                         
                         client = get_gsheets_client()
                         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit").worksheet("Zlecenia")
                         
-                        # Aktualizujemy Przewoźnika(D/4), Uwagi(N/14), Typ(Q/17), Stawkę(R/18)
+                        # Bezpośredni zapis do konkretnych komórek (D/4 - przewoźnik, N/14 - uwagi, Q/17 - status, R/18 - stawka)
                         sheet.update_cell(sheet_row, 4, wybrany_przewoznik)
                         sheet.update_cell(sheet_row, 14, nowe_uwagi)
                         sheet.update_cell(sheet_row, 17, "ZAAKCEPTOWANE")
@@ -109,7 +116,7 @@ if not df_zlecenia.empty and 'Dział' in df_zlecenia.columns:
             st.success("Wszystkie zlecenia z Zaopatrzenia zostały wycenione!")
 
     with tab2:
-        df_zaakceptowane = df_zaopatrzenie[df_zaopatrzenie['Stawka'].astype(str) != '0']
+        df_zaakceptowane = df_zaopatrzenie[df_zaopatrzenie[nazwa_kolumny_stawka].astype(str) != '0']
         if not df_zaakceptowane.empty:
             lista_zaakceptowanych = df_zaakceptowane['Numer zlecenia'].tolist()
             c_sel, c_btn = st.columns([3, 1])
@@ -123,15 +130,19 @@ if not df_zlecenia.empty and 'Dział' in df_zlecenia.columns:
                 "rozladunek": str(wiersz_danych.get('Miejsce Rozladunku', '')),
                 "data_zal": str(wiersz_danych.get('Data Zaladunku', '')),
                 "opis": str(wiersz_danych.get('Towar', 'Sprzęt')),
-                "auto": str(wiersz_danych.get('Uwagi / Instrukcje', '')),
-                "stawka": str(wiersz_danych.get('Stawka', ''))
+                "auto": str(wiersz_danych.get('Uwagi / Instrukcje', wiersz_danych.iloc[13])),
+                "stawka": str(wiersz_danych.get(nazwa_kolumny_stawka, ''))
             }
             
             gotowy_pdf = generate_transport_order_pdf(dane_pdf)
             with c_btn:
                 st.download_button("📥 POBIERZ PDF", data=gotowy_pdf, file_name=f"Zlecenie_{nr_do_pdf.replace('/', '_')}.pdf", mime="application/pdf", type="primary", use_container_width=True)
+            
+            obecne_kolumny = [k for k in ['Data wystawienia', 'Numer zlecenia', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 'ID Projektu'] if k in df_zaakceptowane.columns]
             st.dataframe(df_zaakceptowane[obecne_kolumny], hide_index=True, use_container_width=True)
         else:
             st.info("Brak zaakceptowanych zleceń w bazie.")
 else:
-    st.warning("Silnik nie odnalazł w bazie żadnych zgłoszeń z działu ZAOPATRZENIE.")
+    st.warning("Silnik nie odnalazł bazy danych.")
+
+st.caption("Vortex Nexus 3.0 | Module: Supply Chain Operations")
