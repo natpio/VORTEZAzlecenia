@@ -9,7 +9,6 @@ from core import fetch_data, append_data, get_next_daily_number
 st.markdown("<h1 style='color: #10b981;'>📦 ZGŁOŚ TRANSPORT ZAOPATRZENIA</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color: #94a3b8;'>Formularz dla działu projektowego do zamawiania transportu sprzętu. Zgłoszenia trafiają bezpośrednio do Wyceniarki logistyków.</p>", unsafe_allow_html=True)
 
-# Pobieranie słownika miejsc z cache silnika
 with st.spinner("Ładowanie bazy lokalizacji..."):
     df_miejsca = fetch_data("Miejsca")
     lista_miejsc = df_miejsca['Nazwa do listy'].tolist() if not df_miejsca.empty else ["Brak miejsc w bazie"]
@@ -17,12 +16,10 @@ with st.spinner("Ładowanie bazy lokalizacji..."):
 with st.container(border=True):
     with st.form("form_req_v3"):
         st.subheader("1. Podstawowe informacje")
-        c1, c2, c3 = st.columns([1, 1, 2])
-        logistyk = c1.radio("Opiekun zgłoszenia:", ["PD", "PK"], horizontal=True)
-        kierunek = c2.radio("Typ operacji:", ["Inbound (Ściągnięcie na magazyn)", "Zwrot (Odesłanie do kontrahenta)"])
-        
-        # Zabezpieczenie ID Projektu
-        id_p = c3.text_input("ID Projektu (5 cyfr)", max_chars=5, placeholder="np. 35322")
+        c1, c2 = st.columns(2)
+        kierunek = c1.radio("Typ operacji:", ["Inbound (Ściągnięcie na magazyn)", "Zwrot (Odesłanie do kontrahenta)"])
+        # Zmienione pole na wiele projektów
+        id_p = c2.text_input("ID Projektu (Możesz wpisać kilka po przecinku)", placeholder="np. 35322, 35323")
         
         st.markdown("---")
         st.subheader("2. Szczegóły logistyczne")
@@ -37,41 +34,37 @@ with st.container(border=True):
 if submit_btn:
     if len(id_p) >= 4 and "Brak" not in kontrahent:
         with st.spinner("Rejestrowanie w systemie..."):
-            # Generowanie numeru zlecenia przez silnik core
             dzisiaj = datetime.now().strftime("%Y-%m-%d")
             kolejny = get_next_daily_number(dzisiaj)
-            
             rok = datetime.now().strftime('%y')
             mc_dzien = datetime.now().strftime('%m%d')
             
-            nr_zlecenia = f"CRG{rok}/{mc_dzien}/{logistyk}{kolejny:02d}"
+            # Numer zlecenia neutralny (ZA - Zaopatrzenie)
+            nr_zlecenia = f"CRG{rok}/{mc_dzien}/ZA{kolejny:02d}"
             
-            # Ustalanie trasy na podstawie kierunku
             m_zal = kontrahent if "Inbound" in kierunek else "MAGAZYN WŁASNY (Komorniki)"
             m_roz = "MAGAZYN WŁASNY (Komorniki)" if "Inbound" in kierunek else kontrahent
             
-            # Wiersz dopasowany do 18 kolumn w Google Sheets
             nowy_wiersz = [
                 datetime.now().strftime("%Y-%m-%d %H:%M"), 
                 nr_zlecenia, 
                 "ZAOPATRZENIE", 
-                "", # Przewoźnik (puste do wyceny)
+                "", 
                 m_zal, 
                 m_roz, 
                 str(data_gotowosci), 
-                "", # Data rozładunku
+                "", 
                 "Sprzęt Wypożyczony", 
                 "", "", "", "", 
-                f"Opiekun: {logistyk} | {opis}", 
+                f"Zgłoszono do wyceny | {opis}", # Czysty opis, logistyk dopisze się później
                 "", 
-                id_p, 
+                id_p, # Zapisujemy jako string po przecinku
                 "ZAOP_DO_WYCENY", 
-                "0" # Stawka początkowa jako "0" do przefiltrowania przez wyceniarkę
+                "0"
             ]
             
             if append_data("Zlecenia", nowy_wiersz):
                 st.success(f"✅ Zgłoszenie zostało wysłane do logistyki! Numer: **{nr_zlecenia}**")
-                st.info("Logistyk wyceni to zgłoszenie w swoim panelu. Dane zobaczysz wkrótce w kosztach projektu.")
                 st.balloons()
             else:
                 st.error("Błąd zapisu. Sprawdź logi silnika.")
