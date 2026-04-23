@@ -52,11 +52,8 @@ with st.spinner("Pobieranie zgłoszeń..."):
 lista_przewoznikow = df_przewoznicy['Skrócona Nazwa'].tolist() if not df_przewoznicy.empty else ["Brak danych"]
 
 if not df_zlecenia.empty:
-    # KULOODPORNY FILTR: Szukamy po indeksie kolumny (trzecia kolumna to index 2), ignorujemy jej nazwę
     nazwa_kolumny_dzial = df_zlecenia.columns[2]
     df_zaopatrzenie = df_zlecenia[df_zlecenia[nazwa_kolumny_dzial] == 'ZAOPATRZENIE']
-    
-    # Obsługa kolumny Stawka (nawet jeśli ma spację na końcu, po prostu bierzemy 18-stą kolumnę)
     nazwa_kolumny_stawka = 'Stawka' if 'Stawka' in df_zlecenia.columns else df_zlecenia.columns[17]
     
     df_do_wyceny = df_zaopatrzenie[df_zaopatrzenie[nazwa_kolumny_stawka].astype(str) == '0']
@@ -70,8 +67,29 @@ if not df_zlecenia.empty:
 
     with tab1:
         if not df_do_wyceny.empty:
-            kolumny_widok = ['Data wystawienia', 'Numer zlecenia', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 'ID Projektu']
-            obecne_kolumny = [k for k in kolumny_widok if k in df_do_wyceny.columns]
+            st.markdown("### 📋 Zgłoszenia oczekujące na Twoją wycenę:")
+            
+            # NAPRAWA: Zmieniamy widok tabeli, żeby logistyk widział DATA ZALADUNKU oraz UWAGI (Opis towaru)
+            kolumny_widok = [
+                'Data wystawienia', 
+                'Numer zlecenia', 
+                'Data Zaladunku', 
+                'Miejsce Zaladunku', 
+                'Miejsce Rozladunku', 
+                'Uwagi / Instrukcje', 
+                'ID Projektu'
+            ]
+            
+            # Zabezpieczenie na wypadek literówek w nagłówkach Google Sheets (szukamy indeksami jeśli nazwy się różnią)
+            obecne_kolumny = []
+            for k in kolumny_widok:
+                if k in df_do_wyceny.columns:
+                    obecne_kolumny.append(k)
+                elif k == 'Data Zaladunku':
+                    obecne_kolumny.append(df_do_wyceny.columns[6])
+                elif k == 'Uwagi / Instrukcje':
+                    obecne_kolumny.append(df_do_wyceny.columns[13])
+
             st.dataframe(df_do_wyceny[obecne_kolumny], hide_index=True, use_container_width=True)
             
             st.markdown("### ✍️ Wprowadź wycenę i przejmij zlecenie:")
@@ -93,7 +111,6 @@ if not df_zlecenia.empty:
                         idx = df_zlecenia[df_zlecenia['Numer zlecenia'] == wybrane_zlecenie].index[0]
                         sheet_row = int(idx) + 2 
                         
-                        # Pobieranie aktualnych uwag bez używania konkretnego nagłówka (to 14. kolumna, czyli indeks 13)
                         uwagi_kolumna = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df_zlecenia.columns else df_zlecenia.columns[13]
                         stare_uwagi = str(df_zlecenia.at[idx, uwagi_kolumna])
                         nowe_uwagi = f"Opiekun: {logistyk} | {stare_uwagi}"
@@ -101,7 +118,6 @@ if not df_zlecenia.empty:
                         client = get_gsheets_client()
                         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit").worksheet("Zlecenia")
                         
-                        # Bezpośredni zapis do konkretnych komórek (D/4 - przewoźnik, N/14 - uwagi, Q/17 - status, R/18 - stawka)
                         sheet.update_cell(sheet_row, 4, wybrany_przewoznik)
                         sheet.update_cell(sheet_row, 14, nowe_uwagi)
                         sheet.update_cell(sheet_row, 17, "ZAAKCEPTOWANE")
@@ -138,8 +154,8 @@ if not df_zlecenia.empty:
             with c_btn:
                 st.download_button("📥 POBIERZ PDF", data=gotowy_pdf, file_name=f"Zlecenie_{nr_do_pdf.replace('/', '_')}.pdf", mime="application/pdf", type="primary", use_container_width=True)
             
-            obecne_kolumny = [k for k in ['Data wystawienia', 'Numer zlecenia', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 'ID Projektu'] if k in df_zaakceptowane.columns]
-            st.dataframe(df_zaakceptowane[obecne_kolumny], hide_index=True, use_container_width=True)
+            obecne_kolumny_zakceptowane = [k for k in ['Data wystawienia', 'Numer zlecenia', 'Miejsce Zaladunku', 'Miejsce Rozladunku', 'ID Projektu'] if k in df_zaakceptowane.columns]
+            st.dataframe(df_zaakceptowane[obecne_kolumny_zakceptowane], hide_index=True, use_container_width=True)
         else:
             st.info("Brak zaakceptowanych zleceń w bazie.")
 else:
