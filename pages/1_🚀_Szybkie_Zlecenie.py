@@ -15,20 +15,22 @@ class PRO_TransportOrder(FPDF):
         self.watermark_text = watermark_text
 
     def add_watermark(self):
-        """Poprawna implementacja rotacji znaku wodnego dla fpdf2."""
-        self.set_font("Arial", 'B', 50)
-        self.set_text_color(245, 245, 245)  # Bardzo jasny szary
+        """Implementacja zamglonego znaku wodnego z poprawną rotacją."""
+        self.set_font("Arial", 'B', 40)
+        # Ustawiamy bardzo jasny kolor (zamglony efekt)
+        self.set_text_color(240, 240, 240) 
         
-        # Generowanie siatki znaków wodnych
-        for i in range(0, 210, 60):  # Szerokość A4
-            for j in range(0, 297, 60):  # Wysokość A4
-                # Używamy surowych transformacji do rotacji tekstu
+        # Generowanie siatki znaków wodnych na całej stronie
+        for i in range(0, 210, 50):  # Szerokość A4
+            for j in range(0, 297, 50):  # Wysokość A4
+                # Wykonujemy rotację tekstu względem punktu (i, j)
                 with self.rotation(angle=45, x=i, y=j):
                     self.text(i, j, self.watermark_text)
-        self.set_text_color(0, 0, 0) # Powrót do czarnego
+        
+        self.set_text_color(0, 0, 0) # Powrót do czarnego dla reszty dokumentu
 
     def header(self):
-        # Logo SQM (z pliku logosqm.png lub logosqm.jpg)
+        # Logo SQM z pliku logosqm.png (używamy pliku z głównego folderu)
         try:
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 55)
@@ -52,7 +54,7 @@ class PRO_TransportOrder(FPDF):
         self.set_y(-25)
         self.set_font("Arial", 'I', 8)
         self.set_text_color(150, 150, 150)
-        self.cell(0, 5, "Dokument wygenerowany systemowo przez Vortex Nexus 4.0 PRO. Wszystkie dane sa poufne.", ln=True, align='C')
+        self.cell(0, 5, "Dokument wygenerowany systemowo przez Vortex Nexus 4.0 PRO. Dane poufne.", ln=True, align='C')
         self.cell(0, 5, f"Strona {self.page_no()} / {{nb}}", align='C')
 
 def generate_pro_pdf(dane):
@@ -67,16 +69,17 @@ def generate_pro_pdf(dane):
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # Dodajemy znak wodny przed innymi elementami
+    # 1. NAJPIERW ZNAK WODNY (pod spodem)
     pdf.add_watermark()
 
-    # --- KOD QR (ZABEZPIECZENIE) ---
-    raw_token = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
-    secure_hash = hashlib.md5(raw_token.encode()).hexdigest()[:10].upper()
-    qr_data = f"VERIFY-SQM-ORDER: {dane['nr']} | TOKEN: {secure_hash}"
+    # 2. KOD QR (ZABEZPIECZENIE AUTENTYCZNOŚCI)
+    # Tworzymy unikalny token na podstawie kluczowych danych zlecenia
+    token_base = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
+    secure_hash = hashlib.md5(token_base.encode()).hexdigest()[:12].upper()
+    qr_content = f"SQM-VERIFY: {dane['nr']}\nVALID-HASH: {secure_hash}\nSYSTEM: VORTEX 4.0"
     
     qr = qrcode.QRCode(version=1, box_size=10, border=1)
-    qr.add_data(qr_data)
+    qr.add_data(qr_content)
     qr.make(fit=True)
     img_qr = qr.make_image(fill_color="black", back_color="white")
     
@@ -88,67 +91,68 @@ def generate_pro_pdf(dane):
     if os.path.exists(qr_path):
         os.remove(qr_path)
 
-    # --- UKŁAD DOKUMENTU ---
+    # 3. UKŁAD GŁÓWNY
     pdf.set_xy(10, 45)
     pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(240, 240, 240)
-    pdf.cell(80, 8, f" REFERENCE: {dane['nr']}", ln=False, fill=True)
-    pdf.cell(10, 8, "", ln=False)
-    pdf.cell(100, 8, f" ISSUE DATE: {datetime.now().strftime('%d.%m.%Y')}", ln=True, fill=True)
-    pdf.ln(5)
+    pdf.set_fill_color(245, 245, 245)
+    pdf.cell(85, 9, f" REFERENCE: {dane['nr']}", ln=False, fill=True)
+    pdf.cell(5, 9, "", ln=False)
+    pdf.cell(100, 9, f" ISSUE DATE: {datetime.now().strftime('%d.%m.%Y')}", ln=True, fill=True)
+    pdf.ln(4)
 
-    def draw_section(title, fields):
+    def draw_pro_section(title, fields):
         pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(56, 189, 248) 
+        pdf.set_text_color(56, 189, 248) # Kolor Vortex Sky Blue
         pdf.cell(0, 10, sanitize(title), ln=True)
         pdf.set_text_color(0, 0, 0)
         
         for label, val in fields:
             pdf.set_font("Arial", 'B', 9)
-            pdf.cell(50, 7, sanitize(label), border='B')
+            pdf.cell(55, 7, sanitize(label), border='B')
             pdf.set_font("Arial", '', 10)
             pdf.cell(0, 7, sanitize(val), border='B', ln=True)
-        pdf.ln(5)
+        pdf.ln(4)
 
-    draw_section("PARTIES & VEHICLE", [
-        ("CONTRACTOR:", dane['przewoznik']),
-        ("VEHICLE / DRIVER:", dane['auto'] if dane['auto'] else "TBA"),
-        ("VALUATION TYPE:", dane['typ_zlecenia'])
+    draw_pro_section("PARTIES & ASSETS", [
+        ("CONTRACTOR / PRZEWOZNIK:", dane['przewoznik']),
+        ("VEHICLE & DRIVER / AUTO:", dane['auto'] if dane['auto'] else "TBA"),
+        ("VALUATION MODEL / TRYB:", dane['typ_zlecenia'])
     ])
 
     log_fields = [
-        ("LOADING PLACE:", dane['zaladunek']),
-        ("LOADING DATE:", dane['data_zal']),
-        ("UNLOADING PLACE:", dane['rozladunek']),
-        ("UNLOADING DATE:", dane['data_roz'])
+        ("LOADING / ZALADUNEK:", dane['zaladunek']),
+        ("DATE / DATA ZAL.:", dane['data_zal']),
+        ("UNLOADING / ROZLADUNEK:", dane['rozladunek']),
+        ("DATE / DATA ROZ.:", dane['data_roz'])
     ]
     if dane['typ_zlecenia'] == "Pełny event":
-        log_fields.append(("EMPTIES IN:", dane['data_emp_in']))
-        log_fields.append(("RETURN LOAD:", dane['data_emp_out']))
+        log_fields.append(("EMPTIES IN / ODBIOR PUSTYCH:", dane['data_emp_in']))
+        log_fields.append(("RETURN LOAD / POWROT:", dane['data_emp_out']))
     
-    draw_section("LOGISTICS SCHEDULE", log_fields)
+    draw_pro_section("LOGISTICS TIMELINE", log_fields)
 
-    draw_section("CARGO DETAILS & FINANCIALS", [
-        ("GOODS TYPE:", "Event Structures / Technical Equipment"),
-        ("WEIGHT:", f"{dane['waga']} kg"),
-        ("TOTAL NET COST:", f"{dane['stawka']} {dane['waluta']}"),
-        ("OVERLAY RATE:", f"{dane['postoj']} {dane['waluta']} / day" if float(dane['postoj']) > 0 else "0.00")
+    draw_pro_section("FINANCIALS & CARGO", [
+        ("CARGO TYPE:", "Exhibition Structures / AV Equipment"),
+        ("GROSS WEIGHT:", f"{dane['waga']} kg"),
+        ("TOTAL NET RATE:", f"{dane['stawka']} {dane['waluta']}"),
+        ("OVERLAY PER DAY:", f"{dane['postoj']} {dane['waluta']}" if float(dane['postoj']) > 0 else "0.00")
     ])
 
     pdf.set_font("Arial", 'B', 11)
     pdf.set_text_color(56, 189, 248)
-    pdf.cell(0, 10, "SPECIAL INSTRUCTIONS", ln=True)
+    pdf.cell(0, 10, "SPECIAL PROVISIONS", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", 'I', 9)
-    pdf.multi_cell(0, 6, sanitize(dane['uwagi'] if dane['uwagi'] else "Standard security protocols apply. Please secure cargo with belts."))
+    instructions = dane['uwagi'] if dane['uwagi'] else "Cargo must be secured with professional belts. Driver must follow exhibition center protocols."
+    pdf.multi_cell(0, 6, sanitize(instructions))
 
     return bytes(pdf.output(dest='S').encode('latin1'))
 
-# --- INTERFEJS STREAMLIT ---
-st.set_page_config(page_title="Vortex PRO | Zlecenia", page_icon="🚀", layout="centered")
+# --- INTERFEJS UŻYTKOWNIKA ---
+st.set_page_config(page_title="Vortex PRO", page_icon="🚀", layout="centered")
 st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🚀 Szybkie Zlecenie PRO</h2>", unsafe_allow_html=True)
 
-with st.spinner("Pobieranie bazy danych..."):
+with st.spinner("Ładowanie telemetrii..."):
     df_projekty = fetch_data("Projekty")
     df_miejsca = fetch_data("Miejsca")
     
@@ -156,81 +160,76 @@ lista_eventow = df_projekty['Nazwa Eventu'].dropna().unique().tolist() if not df
 lista_miejsc_baza = df_miejsca['Nazwa do listy'].tolist() if not df_miejsca.empty else []
 opcje_lokalizacji = ["Magazyn SQM Komorniki"] + lista_miejsc_baza + ["INNE (wpisz ręcznie)"]
 
-st.markdown("<br>", unsafe_allow_html=True)
-typ_zlecenia = st.radio("Model operacyjny:", ["Tylko dostawa", "Pełny event"], horizontal=True)
+typ_zlecenia = st.radio("Tryb operacji:", ["Tylko dostawa", "Pełny event"], horizontal=True)
 
 with st.container(border=True):
-    st.markdown("#### 1. Kierunek i Waga")
+    st.markdown("#### 1. Kierunek i Harmonogram")
     lista_miast = sorted(list(TRANSIT_DAYS.keys()))
     c1, c2 = st.columns([3, 1])
-    miasto_docelowe = c1.selectbox("Wybierz miasto docelowe:", ["Wybierz..."] + lista_miast)
+    miasto_docelowe = c1.selectbox("Miasto docelowe:", ["Wybierz..."] + lista_miast)
     waga = c2.number_input("Waga (kg):", min_value=100, step=100, value=1000)
     
     d1, d2 = st.columns(2)
-    data_zal = d1.date_input("Data załadunku:", datetime.now())
-    data_roz = d2.date_input("Data rozładunku:", datetime.now())
+    data_zal = d1.date_input("Data załadunku (PL):", datetime.now())
+    data_roz = d2.date_input("Data rozładunku (Targi):", datetime.now())
     
     if typ_zlecenia == "Pełny event":
         h1, h2 = st.columns(2)
         data_emp_in = h1.date_input("Odbiór pustych:")
-        data_emp_out = h2.date_input("Powrót:")
+        data_emp_out = h2.date_input("Powrót / Załadunek:")
     else:
         data_emp_in, data_emp_out = "", ""
 
 slownik_stawek = get_all_carrier_rates(miasto_docelowe, waga, data_zal, data_roz, data_emp_out, typ_zlecenia)
 
 with st.container(border=True):
-    st.markdown("#### 2. Przewoźnik i Finanse")
+    st.markdown("#### 2. Wybór Przewoźnika i Koszty")
     f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
     
     lista_cennikowa = list(slownik_stawek.keys()) if slownik_stawek else ["Wybierz miasto..."]
-    wybrany_przewoznik = f1.selectbox("Wybierz z cennika:", ["Wybierz..."] + lista_cennikowa)
+    wybrany_przewoznik = f1.selectbox("Dostępni partnerzy:", ["Wybierz..."] + lista_cennikowa)
     
     dane_wybranego = slownik_stawek.get(wybrany_przewoznik, {"cost": 0.0, "postoj": 0.0})
-    stawka_domyslna = dane_wybranego.get("cost", 0.0)
-    postoj_domyslny = dane_wybranego.get("postoj", 0.0)
-    
-    stawka_final = f2.number_input("Cena (auto):", min_value=0.0, step=50.0, value=float(stawka_domyslna))
+    stawka_final = f2.number_input("Cena Total:", value=float(dane_wybranego.get("cost", 0.0)))
     waluta = f3.selectbox("Waluta:", ["EUR", "PLN"])
     
     if typ_zlecenia == "Pełny event":
-        postoj = f4.number_input("Postój/Dz:", min_value=0.0, step=50.0, value=float(postoj_domyslny))
+        postoj = f4.number_input("Postój/Dzień:", value=float(dane_wybranego.get("postoj", 0.0)))
     else:
         postoj = 0.0
 
 with st.container(border=True):
-    st.markdown("#### 3. Szczegóły transportu")
-    wydarzenie = st.selectbox("Projekt:", lista_eventow)
+    st.markdown("#### 3. Logistyka Miejsc")
+    projekt = st.selectbox("Przypisz do Projektu:", lista_eventow)
     l1, l2 = st.columns(2)
     with l1:
-        z_sel = st.selectbox("Załadunek:", opcje_lokalizacji)
+        z_sel = st.selectbox("Miejsce startu:", opcje_lokalizacji)
         z_man = st.text_input("Adres (ręcznie):") if z_sel == "INNE (wpisz ręcznie)" else ""
     with l2:
-        r_sel = st.selectbox("Rozładunek:", opcje_lokalizacji)
+        r_sel = st.selectbox("Miejsce celu:", opcje_lokalizacji)
         r_man = st.text_input("Adres (ręcznie):") if r_sel == "INNE (wpisz ręcznie)" else ""
 
 with st.container(border=True):
-    st.markdown("#### 4. Kierowca i Uwagi")
+    st.markdown("#### 4. Realizacja i Uwagi")
     d_auto, d_wart = st.columns(2)
-    c_auto = d_auto.text_input("Dane auta / kierowcy:", placeholder="np. PO 12345 / Jan Kowalski")
-    wartosc_towaru = d_wart.number_input("Wartość towaru (PLN):", min_value=0, step=1000, value=50000)
-
+    c_auto = d_auto.text_input("Auto / Kierowca:", placeholder="np. PO 12345 / Jan Kowalski")
+    wartosc_towaru = d_wart.number_input("Wartość towaru (PLN):", min_value=0, step=1000, value=100000)
     u1, u2 = st.columns([3, 1])
-    instrukcje = u1.text_input("Uwagi specjalne:")
-    podpis = u2.radio("Opiekun:", ["PD", "PK"], horizontal=True)
+    instrukcje = u1.text_input("Uwagi dla kierowcy:")
+    podpis = u2.radio("Podpis:", ["PD", "PK"], horizontal=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-if st.button("⚡ GENERUJ ZLECENIE PREMIUM PDF", type="primary", use_container_width=True):
-    if wybrany_przewoznik == "Wybierz..." or wybrany_przewoznik == "Wybierz miasto...":
-        st.error("Wybierz poprawnego przewoźnika!")
+if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_width=True):
+    if wybrany_przewoznik in ["Wybierz...", "Wybierz miasto..."]:
+        st.error("Wybierz przewoźnika z listy!")
     else:
-        with st.spinner("Generowanie dokumentu PRO..."):
+        with st.spinner("Zabezpieczanie i generowanie dokumentu..."):
             final_zal = z_man if z_sel == "INNE (wpisz ręcznie)" else z_sel
             final_roz = r_man if r_sel == "INNE (wpisz ręcznie)" else r_sel
             rok, d_kod = datetime.now().strftime('%y'), datetime.now().strftime('%m%d')
             idx = get_next_daily_number(datetime.now().strftime("%Y-%m-%d"))
-            pref = str(wydarzenie)[:3].upper() if wydarzenie != "Brak" else "TRG"
+            pref = str(projekt)[:3].upper() if projekt != "Brak" else "TRG"
             nr_zlecenia = f"{pref}{rok}/{d_kod}/{podpis}{idx:02d}"
             
             paczka_pdf = {
@@ -239,7 +238,7 @@ if st.button("⚡ GENERUJ ZLECENIE PREMIUM PDF", type="primary", use_container_w
                 "zaladunek": final_zal, "data_zal": str(data_zal),
                 "rozladunek": final_roz, "data_roz": str(data_roz),
                 "data_emp_in": str(data_emp_in), "data_emp_out": str(data_emp_out),
-                "waga": waga, "wartosc": wartosc_towaru, "auto": c_auto, "uwagi": instrukcje
+                "waga": waga, "auto": c_auto, "uwagi": instrukcje
             }
             
             historia = f"CYKL: {data_zal} -> {data_roz}" + (f" | EMP: {data_emp_in} | POWRÓT: {data_emp_out}" if typ_zlecenia == "Pełny event" else "")
@@ -247,11 +246,11 @@ if st.button("⚡ GENERUJ ZLECENIE PREMIUM PDF", type="primary", use_container_w
             
             wiersz_db = [
                 datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "LOGISTYKA CARGO", wybrany_przewoznik,
-                final_zal, final_roz, str(data_zal), str(data_roz), "Elementy Zabudowy",
-                "", "", "", "", pelne_uwagi, "", wydarzenie, "TARGI", f"{stawka_final} {waluta}"
+                final_zal, final_roz, str(data_zal), str(data_roz), "Zabudowa Targowa PRO",
+                "", "", "", "", pelne_uwagi, "", projekt, "TARGI", f"{stawka_final} {waluta}"
             ]
             
             if append_data("Zlecenia", wiersz_db):
                 pdf_bytes = generate_pro_pdf(paczka_pdf)
-                st.success(f"✅ Zlecenie PRO {nr_zlecenia} zapisane!")
-                st.download_button("📥 POBIERZ ZLECENIE PRO PDF", data=pdf_bytes, file_name=f"Order_{nr_zlecenia.replace('/', '_')}.pdf", mime="application/pdf", use_container_width=True)
+                st.success(f"✅ Zlecenie {nr_zlecenia} zapisane w bazie chmurowej!")
+                st.download_button("📥 POBIERZ ZLECENIE PREMIUM PDF", data=pdf_bytes, file_name=f"Order_{nr_zlecenia.replace('/', '_')}.pdf", mime="application/pdf", use_container_width=True)
