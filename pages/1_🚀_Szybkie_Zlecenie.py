@@ -85,20 +85,28 @@ opcje_lokalizacji = ["Magazyn SQM Komorniki"] + lista_miejsc_baza + ["INNE (wpis
 st.markdown("<br>", unsafe_allow_html=True)
 typ_zlecenia = st.radio("Model operacyjny:", ["Tylko dostawa", "Pełny event"], horizontal=True)
 
-# SEKCJA 1: TRASA I PARAMETRY
+# SEKCJA 1: TRASA, WAGA I DATY (TERAZ WSZYSTKIE DATY SĄ TUTAJ)
 with st.container(border=True):
-    st.markdown("#### 1. Kierunek i Waga")
+    st.markdown("#### 1. Trasa i Harmonogram")
     lista_miast = sorted(list(TRANSIT_DAYS.keys()))
     c1, c2 = st.columns([3, 1])
     miasto_docelowe = c1.selectbox("Wybierz miasto docelowe:", ["Wybierz..."] + lista_miast)
     waga = c2.number_input("Waga (kg):", min_value=100, step=100, value=1000)
     
     d1, d2 = st.columns(2)
-    data_zal = d1.date_input("Data załadunku:", datetime.now())
-    data_roz = d2.date_input("Data rozładunku:", datetime.now())
+    data_zal = d1.date_input("Data załadunku (Wyjazd):", datetime.now())
+    data_roz = d2.date_input("Data rozładunku (Targi):", datetime.now())
+    
+    # Daty powrotu przeniesione do pierwszej sekcji, by mogły służyć do wyceny postoju
+    if typ_zlecenia == "Pełny event":
+        h1, h2 = st.columns(2)
+        data_emp_in = h1.date_input("Odbiór pustych (Targi):")
+        data_emp_out = h2.date_input("Powrót / Załadunek (Targi):")
+    else:
+        data_emp_in, data_emp_out = "", ""
 
 # POBIERANIE STAWEK Z PRICING.PY
-slownik_stawek = get_all_carrier_rates(miasto_docelowe, waga, data_zal, data_roz, typ_zlecenia)
+slownik_stawek = get_all_carrier_rates(miasto_docelowe, waga, data_zal, data_roz, data_emp_out, typ_zlecenia)
 
 # SEKCJA 2: WYBÓR PRZEWOŹNIKA I AUTOMATYCZNA STAWKA
 with st.container(border=True):
@@ -144,13 +152,6 @@ with st.container(border=True):
     d_auto, d_wart = st.columns(2)
     c_auto = d_auto.text_input("Dane auta / kierowcy:", placeholder="np. PO 12345 / Jan Kowalski")
     wartosc_towaru = d_wart.number_input("Wartość towaru (PLN):", min_value=0, step=1000, value=50000)
-    
-    if typ_zlecenia == "Pełny event":
-        h1, h2 = st.columns(2)
-        data_emp_in = h1.date_input("Odbiór pustych:")
-        data_emp_out = h2.date_input("Powrót:")
-    else:
-        data_emp_in, data_emp_out = "", ""
 
     u1, u2 = st.columns([3, 1])
     instrukcje = u1.text_input("Uwagi specjalne:")
