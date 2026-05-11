@@ -86,7 +86,7 @@ def command_center():
 dash_page = st.Page(command_center, title="Command Center", icon="🏠", default=True)
 
 # Sekcja CARGO
-cargo_1 = st.Page("pages/1_🚛_Dyspozycja_Floty.py", title="Dyspozycja Floty (Targi)")
+cargo_1 = st.Page("pages/1_🚀_Szybkie_Zlecenie.py", title="Szybkie Zlecenie")
 cargo_2 = st.Page("pages/8_🛠️_Obsluga_Zaopatrzenia.py", title="Wyceniarka Zaopatrzenia")
 cargo_3 = st.Page("pages/2_📄_Terminal_CMR.py", title="Terminal CMR")
 cargo_4 = st.Page("pages/3_🚚_Baza_Przewoznikow.py", title="Baza Przewoźników")
