@@ -98,8 +98,7 @@ with st.container(border=True):
     data_roz = d2.date_input("Data rozładunku:", datetime.now())
 
 # POBIERANIE STAWEK Z PRICING.PY
-tryb_ceny = "full" if typ_zlecenia == "Pełny event" else "prop"
-slownik_stawek = get_all_carrier_rates(miasto_docelowe, waga, data_zal, data_roz, tryb_ceny)
+slownik_stawek = get_all_carrier_rates(miasto_docelowe, waga, data_zal, data_roz, typ_zlecenia)
 
 # SEKCJA 2: WYBÓR PRZEWOŹNIKA I AUTOMATYCZNA STAWKA
 with st.container(border=True):
@@ -109,15 +108,23 @@ with st.container(border=True):
     lista_cennikowa = list(slownik_stawek.keys()) if slownik_stawek else ["Wybierz miasto..."]
     wybrany_przewoznik = f1.selectbox("Wybierz z cennika:", ["Wybierz..."] + lista_cennikowa)
     
-    stawka_domyslna = slownik_stawek.get(wybrany_przewoznik, 0.0)
+    # Bezpieczne pobieranie danych ze słownika cennika
+    dane_wybranego = slownik_stawek.get(wybrany_przewoznik, {"cost": 0.0, "postoj": 0.0})
+    
+    if isinstance(dane_wybranego, dict):
+        stawka_domyslna = dane_wybranego.get("cost", 0.0)
+        postoj_domyslny = dane_wybranego.get("postoj", 0.0)
+    else:
+        stawka_domyslna = 0.0
+        postoj_domyslny = 0.0
     
     stawka_final = f2.number_input("Cena (auto):", min_value=0.0, step=50.0, value=float(stawka_domyslna))
     waluta = f3.selectbox("Waluta:", ["EUR", "PLN"])
     
     if typ_zlecenia == "Pełny event":
-        postoj = f4.number_input("Postój/Dz:", min_value=0, step=50, value=150)
+        postoj = f4.number_input("Postój/Dz:", min_value=0.0, step=50.0, value=float(postoj_domyslny))
     else:
-        postoj = 0
+        postoj = 0.0
 
 # SEKCJA 3: LOKALIZACJE I PROJEKT
 with st.container(border=True):
