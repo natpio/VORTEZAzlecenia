@@ -17,7 +17,7 @@ TRANSIT_DAYS = {
     "Sztokholm": {"BUS": 2, "FTL": 3}, "Tuluza": {"BUS": 2, "FTL": 4}, "Warszawa": {"BUS": 1, "FTL": 1}, "Wiedeń": {"BUS": 1, "FTL": 2}
 }
 
-def get_all_carrier_rates(city, weight, start_date, end_date, typ_zlecenia="Pełny event"):
+def get_all_carrier_rates(city, weight, data_zal, data_roz, data_powrotu, typ_zlecenia="Pełny event"):
     df_cennik = fetch_data("Cennik")
     
     if df_cennik.empty or city not in TRANSIT_DAYS:
@@ -28,8 +28,15 @@ def get_all_carrier_rates(city, weight, start_date, end_date, typ_zlecenia="Peł
     if df_city.empty:
         return {}
 
-    overlay = max(0, (end_date - start_date).days) if start_date and end_date else 0
-    parking_rate = 30
+    # OBLICZANIE DNI POSTOJU (Różnica + 1)
+    overlay = 0
+    if typ_zlecenia == "Pełny event" and data_roz and data_powrotu:
+        try:
+            roznica_dni = (data_powrotu - data_roz).days
+            overlay = max(0, roznica_dni + 1)
+        except:
+            overlay = 0
+
     is_uk = city in ["Londyn", "Liverpool", "Manchester"]
     is_ch = city in ["Bazylea", "Genewa"]
     
@@ -41,7 +48,6 @@ def get_all_carrier_rates(city, weight, start_date, end_date, typ_zlecenia="Peł
         v_class = row['Klasa']
         v_type = row['Typ']
         
-        # Wyliczanie pełnych aut na podstawie wagi
         num_v = max(1, math.ceil(weight / cap)) if cap > 0 else 1
         
         extra = 0
@@ -54,15 +60,12 @@ def get_all_carrier_rates(city, weight, start_date, end_date, typ_zlecenia="Peł
             extra = 166
 
         if typ_zlecenia == "Pełny event":
-            # PEŁNY EVENT: Kółko (Export + Import) + Postoje + Dodatki
+            # Usunięto koszty parkingu, liczymy tylko postój * liczba dni
             p_total = float(row['Postój']) * overlay
-            park_total = parking_rate * overlay
-            unit_total = float(row['Export']) + float(row['Import']) + p_total + park_total + extra
+            unit_total = float(row['Export']) + float(row['Import']) + p_total + extra
         else:
-            # TYLKO DOSTAWA: Tylko w 1 stronę (Export) + Dodatki
             unit_total = float(row['Export']) + extra
 
-        # Zawsze mnożymy przez pełne auta (1, 2, 3...) - brak ułamków!
         final_cost = unit_total * num_v
 
         calculated_rates[name] = {
