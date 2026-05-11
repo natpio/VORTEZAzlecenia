@@ -15,21 +15,21 @@ class PRO_TransportOrder(FPDF):
         self.watermark_text = watermark_text
 
     def add_watermark(self):
-        """Implementacja znaku wodnego z wykorzystaniem natywnej rotacji tekstu."""
-        self.set_font("Arial", 'B', 45)
+        """Poprawna implementacja rotacji znaku wodnego dla fpdf2."""
+        self.set_font("Arial", 'B', 50)
         self.set_text_color(245, 245, 245)  # Bardzo jasny szary
-        # Generowanie znaków wodnych w siatce
+        
+        # Generowanie siatki znaków wodnych
         for i in range(0, 210, 60):  # Szerokość A4
             for j in range(0, 297, 60):  # Wysokość A4
-                # Wykorzystujemy rotate() dostępny w fpdf2 (wymaga podania kąta i punktu obrotu)
+                # Używamy surowych transformacji do rotacji tekstu
                 with self.rotation(angle=45, x=i, y=j):
                     self.text(i, j, self.watermark_text)
         self.set_text_color(0, 0, 0) # Powrót do czarnego
 
     def header(self):
-        # Logo SQM (z pliku logosqm.png)
+        # Logo SQM (z pliku logosqm.png lub logosqm.jpg)
         try:
-            # Weryfikacja czy plik istnieje, aby uniknąć błędów
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 55)
             elif os.path.exists("logosqm.jpg"):
@@ -67,8 +67,7 @@ def generate_pro_pdf(dane):
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # Ręczne wywołanie znaku wodnego (fpdf2 nie ma self.rotation bez dodatków w niektórych wersjach)
-    # Jeśli Twoja wersja fpdf2 nie obsługuje 'with self.rotation', używamy prostszej metody:
+    # Dodajemy znak wodny przed innymi elementami
     pdf.add_watermark()
 
     # --- KOD QR (ZABEZPIECZENIE) ---
