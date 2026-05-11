@@ -1,7 +1,6 @@
 import math
-from datetime import date
 
-# Słowniki pomocnicze (zachowaj pełne dane z poprzedniego kroku)
+# Słownik czasu tranzytu
 TRANSIT_DAYS = {
     "Amsterdam": {"BUS": 1, "FTL": 2}, "Barcelona": {"BUS": 2, "FTL": 4}, "Bazylea": {"BUS": 1, "FTL": 2},
     "Berlin": {"BUS": 1, "FTL": 1}, "Bruksela": {"BUS": 1, "FTL": 2}, "Budapeszt": {"BUS": 1, "FTL": 2},
@@ -16,6 +15,7 @@ TRANSIT_DAYS = {
     "Sztokholm": {"BUS": 2, "FTL": 3}, "Tuluza": {"BUS": 2, "FTL": 4}, "Warszawa": {"BUS": 1, "FTL": 1}, "Wiedeń": {"BUS": 1, "FTL": 2}
 }
 
+# Skrócona baza stawek - skopiowałem przykładowe z Twojego pliku, dodaj resztę w miarę potrzeb
 RATES = {
     "WŁASNY SQM BUS": { "postoj": 30, "cap": 1000, "type": 'SQM', "vClass": 'BUS', "exp": {"Amsterdam":373.8,"Barcelona":1106.4,"Berlin":129,"Hannover":226.2,"Londyn":352.8,"Paryż":577.8}, "imp": {"Amsterdam":373.8,"Barcelona":1106.4,"Berlin":129,"Hannover":226.2,"Londyn":352.8,"Paryż":577.8} },
     "WŁASNY SQM SOLO": { "postoj": 150, "cap": 5500, "type": 'SQM', "vClass": 'SOLO', "exp": {"Amsterdam":626.4,"Barcelona":1638.6,"Berlin":202.2,"Hannover":388.2,"Londyn":669.6,"Paryż":948.6}, "imp": {"Amsterdam":626.4,"Barcelona":1638.6,"Berlin":202.2,"Hannover":388.2,"Londyn":669.6,"Paryż":948.6} },
@@ -23,7 +23,6 @@ RATES = {
     "PREMIUM TRANSPORT": { "postoj": 330, "cap": 10500, "type": 'EXT', "vClass": 'FTL', "exp": {"Amsterdam":2300,"Barcelona":4300,"Berlin":1200,"Hannover":1500,"Londyn":5200,"Paryż":2990}, "imp": {"Amsterdam":2300,"Barcelona":4300,"Berlin":1200,"Hannover":1500,"Londyn":5200,"Paryż":2990} },
     "BLM EXPRESS SOLO": { "postoj": 250, "cap": 3500, "type": 'EXT', "vClass": 'SOLO', "exp": {"Amsterdam":1250,"Barcelona":2750,"Berlin":450,"Hannover":750,"Londyn":2250,"Paryż":1700}, "imp": {"Amsterdam":1250,"Barcelona":2750,"Berlin":450,"Hannover":750,"Londyn":1550,"Paryż":1700} },
     "BLM EXPRESS FTL": { "postoj": 400, "cap": 10500, "type": 'EXT', "vClass": 'FTL', "exp": {"Amsterdam":1700,"Barcelona":3950,"Berlin":800,"Hannover":1050,"Londyn":3050,"Paryż":2450}, "imp": {"Amsterdam":1700,"Barcelona":3500,"Berlin":700,"Hannover":900,"Londyn":2800,"Paryż":2200} }
-    # ... uzupełnij o resztę stawek z HTML jeśli potrzebujesz ...
 }
 
 def get_all_carrier_rates(city, weight, start_date, end_date, mode="full"):
@@ -38,7 +37,8 @@ def get_all_carrier_rates(city, weight, start_date, end_date, mode="full"):
     calculated_rates = {}
 
     for name, c in RATES.items():
-        if city not in c["exp"]: continue
+        if city not in c["exp"]: 
+            continue
         
         num_v = max(1, math.ceil(weight / c["cap"]))
         p_total = c["postoj"] * overlay
