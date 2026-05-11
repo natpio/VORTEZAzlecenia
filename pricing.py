@@ -1,7 +1,7 @@
 import math
 from datetime import date
 
-# Słownik czasu tranzytu
+# Słowniki pomocnicze (zachowaj pełne dane z poprzedniego kroku)
 TRANSIT_DAYS = {
     "Amsterdam": {"BUS": 1, "FTL": 2}, "Barcelona": {"BUS": 2, "FTL": 4}, "Bazylea": {"BUS": 1, "FTL": 2},
     "Berlin": {"BUS": 1, "FTL": 1}, "Bruksela": {"BUS": 1, "FTL": 2}, "Budapeszt": {"BUS": 1, "FTL": 2},
@@ -16,79 +16,43 @@ TRANSIT_DAYS = {
     "Sztokholm": {"BUS": 2, "FTL": 3}, "Tuluza": {"BUS": 2, "FTL": 4}, "Warszawa": {"BUS": 1, "FTL": 1}, "Wiedeń": {"BUS": 1, "FTL": 2}
 }
 
-# Skrócona baza stawek (dla przykładu - wklej tu pełne dane z pliku HTML dla wszystkich przewoźników)
 RATES = {
-    "WŁASNY SQM BUS": { 
-        "postoj": 30, "cap": 1000, "type": 'SQM', "vClass": 'BUS', "dniowki": {}, 
-        "exp": {"Amsterdam":373.8, "Barcelona":1106.4, "Berlin":129, "Hannover":226.2, "Londyn":352.8},
-        "imp": {"Amsterdam":373.8, "Barcelona":1106.4, "Berlin":129, "Hannover":226.2, "Londyn":352.8}
-    },
-    "WŁASNY SQM FTL": { 
-        "postoj": 150, "cap": 10500, "type": 'SQM', "vClass": 'FTL', 
-        "dniowki": {"Amsterdam":680, "Barcelona":1360, "Berlin":340, "Hannover":340, "Londyn":1020},
-        "exp": {"Amsterdam":874.8, "Barcelona":2156.4, "Berlin":277.2, "Hannover":540, "Londyn":924},
-        "imp": {"Amsterdam":874.8, "Barcelona":2156.4, "Berlin":277.2, "Hannover":540, "Londyn":924}
-    }
-    # Uzupełnij o resztę słownika RATES z JavaScript...
+    "WŁASNY SQM BUS": { "postoj": 30, "cap": 1000, "type": 'SQM', "vClass": 'BUS', "exp": {"Amsterdam":373.8,"Barcelona":1106.4,"Berlin":129,"Hannover":226.2,"Londyn":352.8,"Paryż":577.8}, "imp": {"Amsterdam":373.8,"Barcelona":1106.4,"Berlin":129,"Hannover":226.2,"Londyn":352.8,"Paryż":577.8} },
+    "WŁASNY SQM SOLO": { "postoj": 150, "cap": 5500, "type": 'SQM', "vClass": 'SOLO', "exp": {"Amsterdam":626.4,"Barcelona":1638.6,"Berlin":202.2,"Hannover":388.2,"Londyn":669.6,"Paryż":948.6}, "imp": {"Amsterdam":626.4,"Barcelona":1638.6,"Berlin":202.2,"Hannover":388.2,"Londyn":669.6,"Paryż":948.6} },
+    "WŁASNY SQM FTL": { "postoj": 150, "cap": 10500, "type": 'SQM', "vClass": 'FTL', "exp": {"Amsterdam":874.8,"Barcelona":2156.4,"Berlin":277.2,"Hannover":540, "Londyn":924, "Paryż":1292.4}, "imp": {"Amsterdam":874.8,"Barcelona":2156.4,"Berlin":277.2,"Hannover":540, "Londyn":924, "Paryż":1292.4} },
+    "PREMIUM TRANSPORT": { "postoj": 330, "cap": 10500, "type": 'EXT', "vClass": 'FTL', "exp": {"Amsterdam":2300,"Barcelona":4300,"Berlin":1200,"Hannover":1500,"Londyn":5200,"Paryż":2990}, "imp": {"Amsterdam":2300,"Barcelona":4300,"Berlin":1200,"Hannover":1500,"Londyn":5200,"Paryż":2990} },
+    "BLM EXPRESS SOLO": { "postoj": 250, "cap": 3500, "type": 'EXT', "vClass": 'SOLO', "exp": {"Amsterdam":1250,"Barcelona":2750,"Berlin":450,"Hannover":750,"Londyn":2250,"Paryż":1700}, "imp": {"Amsterdam":1250,"Barcelona":2750,"Berlin":450,"Hannover":750,"Londyn":1550,"Paryż":1700} },
+    "BLM EXPRESS FTL": { "postoj": 400, "cap": 10500, "type": 'EXT', "vClass": 'FTL', "exp": {"Amsterdam":1700,"Barcelona":3950,"Berlin":800,"Hannover":1050,"Londyn":3050,"Paryż":2450}, "imp": {"Amsterdam":1700,"Barcelona":3500,"Berlin":700,"Hannover":900,"Londyn":2800,"Paryż":2200} }
+    # ... uzupełnij o resztę stawek z HTML jeśli potrzebujesz ...
 }
 
-def calculate_vantage_price(city, weight, start_date, end_date, mode="full"):
-    """
-    Kalkuluje zestawienie opcji transportowych na podstawie podanych kryteriów.
-    Zwraca posortowaną listę słowników z wycenami.
-    """
+def get_all_carrier_rates(city, weight, start_date, end_date, mode="full"):
     if city not in TRANSIT_DAYS:
-        return []
+        return {}
 
-    # Obliczanie dni postoju (overlay)
-    overlay = 0
-    if start_date and end_date:
-        overlay = max(0, (end_date - start_date).days)
-    
-    parking_daily_rate = 30
+    overlay = max(0, (end_date - start_date).days) if start_date and end_date else 0
+    parking_rate = 30
     is_uk = city in ["Londyn", "Liverpool", "Manchester"]
     is_ch = city in ["Bazylea", "Genewa"]
     
-    results = []
+    calculated_rates = {}
 
-    for carrier_name, c in RATES.items():
-        if city not in c.get("exp", {}):
-            continue
-
-        num_vehicles = math.ceil(weight / c["cap"]) if c["cap"] > 0 else 1
-        num_vehicles = max(1, num_vehicles)
-
-        exp_cost = c["exp"][city]
-        imp_cost = c["imp"][city]
-        dniowka = c.get("dniowki", {}).get(city, 0)
+    for name, c in RATES.items():
+        if city not in c["exp"]: continue
+        
+        num_v = max(1, math.ceil(weight / c["cap"]))
         p_total = c["postoj"] * overlay
-        parking_total = parking_daily_rate * overlay
-
-        extra_cost = 0
+        park_total = parking_rate * overlay
+        extra = 0
         
-        # Logika dodatków celnych / promowych
         if is_uk:
-            if c["type"] == 'SQM':
-                extra_cost = (332 + 166 + 19) if c["vClass"] == 'BUS' else (522 + 166 + 19 + 69)
-            else:
-                extra_cost = 166
+            extra = (517 if c["vClass"] == 'BUS' else 776) if c["type"] == 'SQM' else 166
         elif is_ch:
-            extra_cost = 166
+            extra = 166
 
-        total_for_one = exp_cost + imp_cost + dniowka + p_total + extra_cost + parking_total
+        unit_total = c["exp"][city] + c["imp"][city] + p_total + park_total + extra
+        final_cost = unit_total * num_v if mode == "full" else (unit_total / c["cap"]) * weight
         
-        if mode == "full":
-            final_cost = total_for_one * num_vehicles
-        else: # proporcjonalny (doładunek)
-            final_cost = (total_for_one / c["cap"]) * weight
-
-        results.append({
-            "carrier": carrier_name,
-            "cost": final_cost,
-            "vClass": c["vClass"],
-            "count": num_vehicles
-        })
-
-    # Sortowanie od najtańszego
-    results.sort(key=lambda x: x["cost"])
-    return results
+        calculated_rates[name] = round(final_cost, 2)
+    
+    return calculated_rates
