@@ -28,12 +28,12 @@ def get_all_carrier_rates(city, weight, data_zal, data_roz, data_powrotu, typ_zl
     if df_city.empty:
         return {}
 
-    # OBLICZANIE DNI POSTOJU (Różnica + 1)
+    # OBLICZANIE DNI POSTOJU (Tylko czysta różnica dat, bez dodawania +1)
     overlay = 0
     if typ_zlecenia == "Pełny event" and data_roz and data_powrotu:
         try:
             roznica_dni = (data_powrotu - data_roz).days
-            overlay = max(0, roznica_dni + 1)
+            overlay = max(0, roznica_dni)
         except:
             overlay = 0
 
@@ -60,7 +60,7 @@ def get_all_carrier_rates(city, weight, data_zal, data_roz, data_powrotu, typ_zl
             extra = 166
 
         if typ_zlecenia == "Pełny event":
-            # Usunięto koszty parkingu, liczymy tylko postój * liczba dni
+            # Liczymy postój na podstawie czystej różnicy dni
             p_total = float(row['Postój']) * overlay
             unit_total = float(row['Export']) + float(row['Import']) + p_total + extra
         else:
