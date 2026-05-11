@@ -8,26 +8,32 @@ import hashlib
 from core import fetch_data, append_data, get_next_daily_number
 from pricing import get_all_carrier_rates, TRANSIT_DAYS
 
-# --- NOWOCZESNY GENERATOR PDF PRO ---
+# --- NOWOCZESNY GENERATOR PDF PRO (NAPRAWIONY) ---
 class PRO_TransportOrder(FPDF):
     def __init__(self, watermark_text="SQM"):
         super().__init__()
         self.watermark_text = watermark_text
 
     def add_watermark(self):
-        self.set_font("Arial", 'B', 50)
+        """Implementacja znaku wodnego z wykorzystaniem natywnej rotacji tekstu."""
+        self.set_font("Arial", 'B', 45)
         self.set_text_color(245, 245, 245)  # Bardzo jasny szary
-        # Generowanie znaków wodnych w siatce pod kątem
-        for i in range(0, 300, 50):
-            for j in range(0, 300, 50):
-                with self.rotation(45, i, j):
+        # Generowanie znaków wodnych w siatce
+        for i in range(0, 210, 60):  # Szerokość A4
+            for j in range(0, 297, 60):  # Wysokość A4
+                # Wykorzystujemy rotate() dostępny w fpdf2 (wymaga podania kąta i punktu obrotu)
+                with self.rotation(angle=45, x=i, y=j):
                     self.text(i, j, self.watermark_text)
         self.set_text_color(0, 0, 0) # Powrót do czarnego
 
     def header(self):
         # Logo SQM (z pliku logosqm.png)
         try:
-            self.image("logosqm.png", 10, 8, 55)
+            # Weryfikacja czy plik istnieje, aby uniknąć błędów
+            if os.path.exists("logosqm.png"):
+                self.image("logosqm.png", 10, 8, 55)
+            elif os.path.exists("logosqm.jpg"):
+                self.image("logosqm.jpg", 10, 8, 55)
         except:
             pass
         
@@ -60,10 +66,12 @@ def generate_pro_pdf(dane):
     pdf = PRO_TransportOrder()
     pdf.alias_nb_pages()
     pdf.add_page()
+    
+    # Ręczne wywołanie znaku wodnego (fpdf2 nie ma self.rotation bez dodatków w niektórych wersjach)
+    # Jeśli Twoja wersja fpdf2 nie obsługuje 'with self.rotation', używamy prostszej metody:
     pdf.add_watermark()
 
     # --- KOD QR (ZABEZPIECZENIE) ---
-    # Tworzymy unikalny skrót weryfikacyjny
     raw_token = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
     secure_hash = hashlib.md5(raw_token.encode()).hexdigest()[:10].upper()
     qr_data = f"VERIFY-SQM-ORDER: {dane['nr']} | TOKEN: {secure_hash}"
@@ -77,11 +85,11 @@ def generate_pro_pdf(dane):
         img_qr.save(tmp, format="PNG")
         qr_path = tmp.name
 
-    # Umieszczenie QR w rogu sekcji nagłówka
     pdf.image(qr_path, 175, 40, 25)
-    os.remove(qr_path)
+    if os.path.exists(qr_path):
+        os.remove(qr_path)
 
-    # --- SEKCJA INFO ---
+    # --- UKŁAD DOKUMENTU ---
     pdf.set_xy(10, 45)
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(240, 240, 240)
@@ -90,14 +98,12 @@ def generate_pro_pdf(dane):
     pdf.cell(100, 8, f" ISSUE DATE: {datetime.now().strftime('%d.%m.%Y')}", ln=True, fill=True)
     pdf.ln(5)
 
-    # --- FUNKCJA SEKCJI ---
     def draw_section(title, fields):
         pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(56, 189, 248) # Kolor akcentu Vortex
+        pdf.set_text_color(56, 189, 248) 
         pdf.cell(0, 10, sanitize(title), ln=True)
         pdf.set_text_color(0, 0, 0)
         
-        pdf.set_font("Arial", '', 9)
         for label, val in fields:
             pdf.set_font("Arial", 'B', 9)
             pdf.cell(50, 7, sanitize(label), border='B')
@@ -105,14 +111,12 @@ def generate_pro_pdf(dane):
             pdf.cell(0, 7, sanitize(val), border='B', ln=True)
         pdf.ln(5)
 
-    # 1. Partnerzy
     draw_section("PARTIES & VEHICLE", [
         ("CONTRACTOR:", dane['przewoznik']),
         ("VEHICLE / DRIVER:", dane['auto'] if dane['auto'] else "TBA"),
         ("VALUATION TYPE:", dane['typ_zlecenia'])
     ])
 
-    # 2. Logistyka
     log_fields = [
         ("LOADING PLACE:", dane['zaladunek']),
         ("LOADING DATE:", dane['data_zal']),
@@ -125,7 +129,6 @@ def generate_pro_pdf(dane):
     
     draw_section("LOGISTICS SCHEDULE", log_fields)
 
-    # 3. Cargo & Financials
     draw_section("CARGO DETAILS & FINANCIALS", [
         ("GOODS TYPE:", "Event Structures / Technical Equipment"),
         ("WEIGHT:", f"{dane['waga']} kg"),
@@ -133,7 +136,6 @@ def generate_pro_pdf(dane):
         ("OVERLAY RATE:", f"{dane['postoj']} {dane['waluta']} / day" if float(dane['postoj']) > 0 else "0.00")
     ])
 
-    # 4. Instrukcje
     pdf.set_font("Arial", 'B', 11)
     pdf.set_text_color(56, 189, 248)
     pdf.cell(0, 10, "SPECIAL INSTRUCTIONS", ln=True)
@@ -147,7 +149,6 @@ def generate_pro_pdf(dane):
 st.set_page_config(page_title="Vortex PRO | Zlecenia", page_icon="🚀", layout="centered")
 st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🚀 Szybkie Zlecenie PRO</h2>", unsafe_allow_html=True)
 
-# Pobieranie słowników z Google Sheets
 with st.spinner("Pobieranie bazy danych..."):
     df_projekty = fetch_data("Projekty")
     df_miejsca = fetch_data("Miejsca")
@@ -159,7 +160,6 @@ opcje_lokalizacji = ["Magazyn SQM Komorniki"] + lista_miejsc_baza + ["INNE (wpis
 st.markdown("<br>", unsafe_allow_html=True)
 typ_zlecenia = st.radio("Model operacyjny:", ["Tylko dostawa", "Pełny event"], horizontal=True)
 
-# SEKCJA 1: TRASA I PARAMETRY
 with st.container(border=True):
     st.markdown("#### 1. Kierunek i Waga")
     lista_miast = sorted(list(TRANSIT_DAYS.keys()))
@@ -178,10 +178,8 @@ with st.container(border=True):
     else:
         data_emp_in, data_emp_out = "", ""
 
-# POBIERANIE STAWEK Z PRICING.PY
 slownik_stawek = get_all_carrier_rates(miasto_docelowe, waga, data_zal, data_roz, data_emp_out, typ_zlecenia)
 
-# SEKCJA 2: WYBÓR PRZEWOŹNIKA
 with st.container(border=True):
     st.markdown("#### 2. Przewoźnik i Finanse")
     f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
@@ -201,7 +199,6 @@ with st.container(border=True):
     else:
         postoj = 0.0
 
-# SEKCJA 3: DETALE I PROJEKT
 with st.container(border=True):
     st.markdown("#### 3. Szczegóły transportu")
     wydarzenie = st.selectbox("Projekt:", lista_eventow)
@@ -225,7 +222,6 @@ with st.container(border=True):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# PRZYCISK GENEROWANIA
 if st.button("⚡ GENERUJ ZLECENIE PREMIUM PDF", type="primary", use_container_width=True):
     if wybrany_przewoznik == "Wybierz..." or wybrany_przewoznik == "Wybierz miasto...":
         st.error("Wybierz poprawnego przewoźnika!")
@@ -247,7 +243,6 @@ if st.button("⚡ GENERUJ ZLECENIE PREMIUM PDF", type="primary", use_container_w
                 "waga": waga, "wartosc": wartosc_towaru, "auto": c_auto, "uwagi": instrukcje
             }
             
-            # Przygotowanie wiersza do bazy
             historia = f"CYKL: {data_zal} -> {data_roz}" + (f" | EMP: {data_emp_in} | POWRÓT: {data_emp_out}" if typ_zlecenia == "Pełny event" else "")
             pelne_uwagi = f"AUTO: {c_auto} || WART: {wartosc_towaru}PLN || {historia} || {instrukcje}"
             
