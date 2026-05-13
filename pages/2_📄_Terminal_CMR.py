@@ -4,7 +4,6 @@ from datetime import datetime
 from fpdf import FPDF
 import io
 import os
-import hashlib
 
 # Importujemy silnik Vortex
 from core import fetch_data
@@ -23,10 +22,10 @@ def pdf_sanitize(text):
 
 # --- KLASA GENERATORA CMR PRO ---
 class CMR_Pro_Generator(FPDF):
-    def __init__(self, copy_num=1, copy_label=""):
+    def __init__(self):
         super().__init__()
-        self.copy_num = copy_num
-        self.copy_label = copy_label
+        self.copy_num = 1
+        self.copy_label = ""
         self.primary_color = (25, 118, 210)
 
     def header(self):
@@ -34,6 +33,8 @@ class CMR_Pro_Generator(FPDF):
         try:
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 45)
+            elif os.path.exists("logosqm.jpg"):
+                self.image("logosqm.jpg", 10, 8, 45)
         except:
             pass
         
@@ -84,7 +85,7 @@ def draw_cmr_box(pdf, title_en, title_pl, content, height=25, width=95):
     pdf.set_xy(x + 2, y + 10)
     pdf.multi_cell(width-4, 4, pdf_sanitize(content), border=0)
     
-    # Powrót do pozycji pod ramką (jeśli nie chcemy obok)
+    # Powrót do pozycji pod ramką
     pdf.set_xy(x, y + height)
 
 # --- LOGIKA TERMINALA ---
@@ -95,83 +96,102 @@ with st.spinner("Synchronizacja ze zleceniami..."):
     df = fetch_data("Zlecenia")
 
 if not df.empty:
-    lista_nr = df[df['Dział'] == 'LOGISTYKA CARGO']['Numer zlecenia'].astype(str).tolist()
-    wybor = st.selectbox("Wybierz Numer Zlecenia do wystawienia CMR:", ["Wybierz..."] + lista_nr)
-
-    if wybor != "Wybierz...":
-        r = df[df['Numer zlecenia'].astype(str) == wybor].iloc[0]
+    # ZABEZPIECZENIE NA BRAK KOLUMNY 'Dział' (np. inna spacja w Google Sheets)
+    if 'Dział' in df.columns:
+        df_cargo = df[df['Dział'] == 'LOGISTYKA CARGO']
+    elif len(df.columns) > 2:
+        col_dzial = df.columns[2]
+        df_cargo = df[df[col_dzial] == 'LOGISTYKA CARGO']
+    else:
+        df_cargo = df
         
-        with st.container(border=True):
-            st.markdown(f"#### Dane do CMR dla: {wybor}")
-            col1, col2 = st.columns(2)
-            kierowca = col1.text_input("Kierowca / Nr Rejestracyjny:", value=str(r.get('Uwagi / Instrukcje', '')).split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in str(r.get('Uwagi / Instrukcje', '')) else "")
-            waga = col2.text_input("Waga deklarowana (kg):", value="Wg specyfikacji")
+    if not df_cargo.empty and 'Numer zlecenia' in df_cargo.columns:
+        lista_nr = df_cargo['Numer zlecenia'].astype(str).tolist()
+    else:
+        lista_nr = []
 
-        if st.button("⚡ GENERUJ WIELOPSTRONICOWY CMR PDF", type="primary", use_container_width=True):
-            with st.spinner("Składanie stron dokumentu..."):
-                pdf = FPDF()
-                kopie = [
-                    (1, "EGZEMPLARZ DLA NADAWCY (SENDER)"),
-                    (2, "EGZEMPLARZ DLA ODBIORCY (CONSIGNEE)"),
-                    (3, "EGZEMPLARZ DLA PRZEWOZNIKA (CARRIER)"),
-                    (4, "ADMINISTRACJA (ADMINISTRATION)")
-                ]
+    if lista_nr:
+        wybor = st.selectbox("Wybierz Numer Zlecenia do wystawienia CMR:", ["Wybierz..."] + lista_nr)
 
-                for num, label in kopie:
-                    # Ręczne symulowanie nagłówka dla każdej strony
-                    pdf.add_page()
-                    
-                    # Logika nagłówka PRO (uproszczona wewnątrz pętli)
-                    pdf.set_font("Arial", 'B', 14)
-                    pdf.cell(0, 10, pdf_sanitize(f"CMR - COPY {num} / {label}"), ln=True, align='C')
-                    pdf.ln(5)
+        if wybor != "Wybierz...":
+            r = df_cargo[df_cargo['Numer zlecenia'].astype(str) == wybor].iloc[0]
+            
+            with st.container(border=True):
+                st.markdown(f"#### Dane do CMR dla: {wybor}")
+                col1, col2 = st.columns(2)
+                
+                # Bezpieczne pobieranie uwag z radzeniem sobie ze zmienną nazwą kolumny
+                uwagi_col = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df.columns else (df.columns[13] if len(df.columns) > 13 else 'Brak')
+                uwagi_raw = str(r.get(uwagi_col, ''))
+                
+                kierowca = col1.text_input("Kierowca / Nr Rejestracyjny:", value=uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "")
+                waga = col2.text_input("Waga deklarowana (kg):", value="Wg specyfikacji")
 
-                    # --- RUBRYKI CMR ---
-                    y_start = pdf.get_y()
-                    
-                    # 1. Nadawca
-                    draw_cmr_box(pdf, "1. SENDER", "Nadawca", "SQM Prosta Spółka Akcyjna\nul. Piekarna 1\n62-052 Komorniki, PL", height=30)
-                    
-                    # 2. Odbiorca
-                    draw_cmr_box(pdf, "2. CONSIGNEE", "Odbiorca", str(r.get('Miejsce Rozladunku', '')), height=35)
-                    
-                    # 3. Miejsce przeznaczenia
-                    draw_cmr_box(pdf, "3. PLACE OF DELIVERY", "Miejsce rozladunku", str(r.get('Miejsce Rozladunku', '')), height=25)
-                    
-                    # Pozycjonowanie obok (kolumna prawa)
-                    pdf.set_xy(105, y_start)
-                    
-                    # 16. Przewoźnik
-                    draw_cmr_box(pdf, "16. CARRIER", "Przewoznik", str(r.get('Zleceniobiorca', '')), height=30)
-                    
-                    # 17. Successive carriers
-                    draw_cmr_box(pdf, "17. SUCCESSIVE CARRIERS", "Kolejni przewoznicy", str(kierowca), height=35)
-                    
-                    # 18. Reservations
-                    draw_cmr_box(pdf, "18. RESERVATIONS", "Zastrzezenia", "N/A", height=25)
+            if st.button("⚡ GENERUJ WIELOPSTRONICOWY CMR PDF", type="primary", use_container_width=True):
+                with st.spinner("Składanie stron dokumentu..."):
+                    pdf = CMR_Pro_Generator()
+                    kopie = [
+                        (1, "EGZEMPLARZ DLA NADAWCY (SENDER)"),
+                        (2, "EGZEMPLARZ DLA ODBIORCY (CONSIGNEE)"),
+                        (3, "EGZEMPLARZ DLA PRZEWOZNIKA (CARRIER)"),
+                        (4, "ADMINISTRACJA (ADMINISTRATION)")
+                    ]
 
-                    # Sekcja towarowa
-                    pdf.set_xy(10, pdf.get_y() + 5)
-                    draw_cmr_box(pdf, "6-12. DESCRIPTION OF GOODS", "Opis towaru", "Exhibition Structures / Sprzęt AV / Konstrukcje Targowe", width=190, height=40)
-                    
-                    # Podpis i Data
-                    pdf.ln(5)
-                    curr_y = pdf.get_y()
-                    draw_cmr_box(pdf, "21. ESTABLISHED IN", "Wystawiono w", f"Komorniki, {datetime.now().strftime('%d.%m.%Y')}", width=60)
-                    pdf.set_xy(70, curr_y)
-                    draw_cmr_box(pdf, "22. SENDER SIGNATURE", "Podpis nadawcy", "", width=65)
-                    pdf.set_xy(135, curr_y)
-                    draw_cmr_box(pdf, "23. CARRIER SIGNATURE", "Podpis przewoznika", "", width=65)
+                    for num, label in kopie:
+                        pdf.copy_num = num
+                        pdf.copy_label = label
+                        pdf.add_page()
+                        
+                        pdf.set_y(40) # Pozycja startowa po nagłówku
+                        y_start = pdf.get_y()
+                        
+                        # --- LEWA STRONA ---
+                        # 1. Nadawca
+                        draw_cmr_box(pdf, "1. SENDER", "Nadawca", "SQM Prosta Spółka Akcyjna\nul. Piekarna 1\n62-052 Komorniki, PL", height=30)
+                        
+                        # 2. Odbiorca
+                        draw_cmr_box(pdf, "2. CONSIGNEE", "Odbiorca", str(r.get('Miejsce Rozladunku', '')), height=35)
+                        
+                        # 3. Miejsce przeznaczenia
+                        draw_cmr_box(pdf, "3. PLACE OF DELIVERY", "Miejsce rozladunku", str(r.get('Miejsce Rozladunku', '')), height=25)
+                        
+                        # --- PRAWA STRONA ---
+                        pdf.set_xy(105, y_start)
+                        
+                        # 16. Przewoźnik
+                        draw_cmr_box(pdf, "16. CARRIER", "Przewoznik", str(r.get('Zleceniobiorca', '')), height=30)
+                        
+                        # 17. Successive carriers
+                        draw_cmr_box(pdf, "17. SUCCESSIVE CARRIERS", "Kolejni przewoznicy", str(kierowca), height=35)
+                        
+                        # 18. Reservations
+                        draw_cmr_box(pdf, "18. RESERVATIONS", "Zastrzezenia", "N/A", height=25)
 
-                # Export
-                pdf_bytes = pdf.output(dest='S').encode('latin1')
-                st.success("✅ Dokument CMR (4 strony) gotowy!")
-                st.download_button(
-                    "📥 POBIERZ CMR PDF (PRO MULTI-PAGE)", 
-                    data=pdf_bytes, 
-                    file_name=f"CMR_{wybor.replace('/', '_')}.pdf", 
-                    mime="application/pdf", 
-                    use_container_width=True
-                )
+                        # --- DOLNY PAS ---
+                        pdf.set_xy(10, pdf.get_y() + 5)
+                        # Sekcja towarowa
+                        draw_cmr_box(pdf, "6-12. DESCRIPTION OF GOODS", "Opis towaru", f"Exhibition Structures / Sprzęt AV / Konstrukcje Targowe\n\nWaga brutto: {waga}", width=190, height=35)
+                        
+                        # Podpis i Data
+                        pdf.ln(5)
+                        curr_y = pdf.get_y()
+                        draw_cmr_box(pdf, "21. ESTABLISHED IN", "Wystawiono w", f"Komorniki, {datetime.now().strftime('%d.%m.%Y')}", width=60)
+                        pdf.set_xy(70, curr_y)
+                        draw_cmr_box(pdf, "22. SENDER SIGNATURE", "Podpis nadawcy", "", width=65)
+                        pdf.set_xy(135, curr_y)
+                        draw_cmr_box(pdf, "23. CARRIER SIGNATURE", "Podpis przewoznika", "", width=65)
+
+                    # Zapisywanie
+                    pdf_bytes = pdf.output(dest='S').encode('latin1')
+                    st.success("✅ Dokument CMR (4 strony) gotowy!")
+                    st.download_button(
+                        "📥 POBIERZ CMR PDF (PRO MULTI-PAGE)", 
+                        data=pdf_bytes, 
+                        file_name=f"CMR_{wybor.replace('/', '_')}.pdf", 
+                        mime="application/pdf", 
+                        use_container_width=True
+                    )
+    else:
+        st.warning("Nie znaleziono zleceń w bazie dla podanego działu.")
 else:
-    st.info("Brak zleceń do wystawienia CMR.")
+    st.info("Brak zleceń w głównej bazie danych.")
