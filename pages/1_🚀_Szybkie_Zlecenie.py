@@ -52,7 +52,7 @@ class PRO_TransportOrder(FPDF):
         self.set_y(-25)
         self.set_font("Arial", 'I', 8)
         self.set_text_color(150, 150, 150)
-        self.cell(0, 5, "Dokument wygenerowany systemowo przez Vortex Nexus 4.0 PRO. Dane poufne.", ln=True, align='C')
+        self.cell(0, 5, "Dokument wygenerowany systemowo przez Vorteza Orders 2.0. Dane poufne.", ln=True, align='C')
         self.cell(0, 5, f"Strona {self.page_no()} / {{nb}}", align='C')
 
 def generate_pro_pdf(dane):
