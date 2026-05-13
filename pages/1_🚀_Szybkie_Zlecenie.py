@@ -14,21 +14,18 @@ class PRO_TransportOrder(FPDF):
         super().__init__()
         self.watermark_text = watermark_text
 
-    def add_watermark(self):
-        """Bezpieczna implementacja zamglonego znaku wodnego dla klasycznego fpdf."""
+    def header(self):
+        # 1. ZNAK WODNY (Rysowany najpierw, żeby był tłem)
         self.set_font("Arial", 'B', 45)
-        self.set_text_color(240, 240, 240) 
-        
-        # Generowanie siatki poziomej na przemian (efekt cegiełki)
-        for j in range(30, 297, 45):
+        self.set_text_color(245, 245, 245) # Bardzo jasny szary
+        # Zaczynamy od y=80, żeby nagłówek i logo były czyste i czytelne
+        for j in range(80, 297, 45):
             przesuniecie = 35 if (j // 45) % 2 == 0 else 0
             for i in range(-20, 210, 70):
                 self.text(i + przesuniecie, j, self.watermark_text)
+        self.set_text_color(0, 0, 0) # Powrót do czarnego dla tekstu
         
-        self.set_text_color(0, 0, 0) # Powrót do czarnego dla reszty dokumentu
-
-    def header(self):
-        # Logo SQM z pliku
+        # 2. LOGO FIRMY
         try:
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 55)
@@ -37,15 +34,16 @@ class PRO_TransportOrder(FPDF):
         except:
             pass
         
+        # 3. TEKST NAGŁÓWKOWY (Lekko przesunięty w lewo, żeby zrobić miejsce na QR)
         self.set_font("Arial", 'B', 20)
         self.set_text_color(40, 40, 40)
-        self.set_xy(100, 15)
-        self.cell(100, 10, "TRANSPORT ORDER", ln=True, align='R')
+        self.set_xy(80, 15)
+        self.cell(90, 10, "TRANSPORT ORDER", ln=True, align='R')
         
         self.set_font("Arial", '', 9)
         self.set_text_color(100, 100, 100)
-        self.set_xy(100, 25)
-        self.cell(100, 5, "SQM Prosta Spolka Akcyjna | Logistics Department", ln=True, align='R')
+        self.set_xy(80, 25)
+        self.cell(90, 5, "SQM Prosta Spolka Akcyjna | Logistics Department", ln=True, align='R')
         self.ln(15)
 
     def footer(self):
@@ -65,13 +63,9 @@ def generate_pro_pdf(dane):
 
     pdf = PRO_TransportOrder()
     pdf.alias_nb_pages()
-    pdf.add_page()
-    
-    # 1. NAJPIERW ZNAK WODNY (pod spodem)
-    pdf.add_watermark()
+    pdf.add_page() # To automatycznie wywołuje funkcję header() ze znakiem wodnym i logo
 
-    # 2. KOD QR (ZABEZPIECZENIE AUTENTYCZNOŚCI)
-    # Tworzymy unikalny token na podstawie kluczowych danych zlecenia
+    # --- KOD QR (Prawy górny róg) ---
     token_base = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
     secure_hash = hashlib.md5(token_base.encode()).hexdigest()[:12].upper()
     qr_content = f"SQM-VERIFY: {dane['nr']}\nVALID-HASH: {secure_hash}\nSYSTEM: VORTEX 4.0"
@@ -85,11 +79,12 @@ def generate_pro_pdf(dane):
         img_qr.save(tmp, format="PNG")
         qr_path = tmp.name
 
-    pdf.image(qr_path, 175, 40, 25)
+    # QR Code precyzyjnie obok tekstów nagłówkowych, bezpiecznie z dala od szarych pasków
+    pdf.image(qr_path, 175, 10, 25) 
     if os.path.exists(qr_path):
         os.remove(qr_path)
 
-    # 3. UKŁAD GŁÓWNY
+    # --- UKŁAD GŁÓWNY (Zaczynamy od osi Y = 45) ---
     pdf.set_xy(10, 45)
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(245, 245, 245)
