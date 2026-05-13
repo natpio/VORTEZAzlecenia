@@ -38,11 +38,21 @@ def fill_excel_cmr(dane, template_path="cmr_template.xlsx"):
     wb = openpyxl.load_workbook(template_path)
     ws = wb.active # Bierzemy pierwszy aktywny arkusz
     
-    # Wstrzykiwanie danych wg mapowania
     for klucz, komorka in MAP_CMR.items():
         if klucz in dane:
-            # Ustawienie wartości komórki (openpyxl zachowuje formatowanie tła/ramek)
-            ws[komorka] = dane[klucz]
+            is_merged = False
+            # Sprawdzamy czy podana komórka znajduje się w jakimś scalonym bloku
+            for merged_range in ws.merged_cells.ranges:
+                if komorka in merged_range:
+                    # Jeśli tak, znajdujemy lewy górny róg scalenia (np. z "D5:H10" bierzemy "D5")
+                    top_left_cell = str(merged_range).split(':')[0]
+                    ws[top_left_cell] = dane[klucz]
+                    is_merged = True
+                    break
+            
+            # Jeśli komórka nie jest scalona, wpisujemy normalnie
+            if not is_merged:
+                ws[komorka] = dane[klucz]
             
     # Zapisujemy do pamięci (BytesIO) żeby użytkownik mógł to od razu pobrać
     output = io.BytesIO()
