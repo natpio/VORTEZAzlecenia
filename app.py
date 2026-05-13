@@ -70,7 +70,7 @@ def command_center():
 
     # --- NOWY MODUŁ: WERYFIKATOR DOKUMENTÓW PRO ---
     with col_verify:
-        st.markdown("<h4 style='color: #8b5cf6;'>🕵️ Weryfikator PRO</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #8b5cf6;'>🕵️ Weryfikator</h4>", unsafe_allow_html=True)
         with st.container(border=True):
             st.write("Zeskanuj QR i wklej token poniżej:")
             hash_input = st.text_input("TOKEN (Hash):", placeholder="np. 8A4B9F1C3E2D")
