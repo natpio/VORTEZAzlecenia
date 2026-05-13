@@ -4,12 +4,13 @@ from datetime import datetime
 import io
 import os
 import openpyxl
+from openpyxl.styles import Alignment
 from weasyprint import HTML
 
 # Importujemy silnik Vortex
 from core import fetch_data
 
-# --- KONFIGURACJA MAPOWANIA (Zgodnie z Twoim plikiem Excel) ---
+# --- KONFIGURACJA MAPOWANIA (Zgodnie z załącznikami) ---
 MAP_CMR = {
     "1_Nadawca": "D6",               
     "2_Odbiorca": "D14",             
@@ -17,29 +18,31 @@ MAP_CMR = {
     "4_Miejsce_Zaladunku": "D24",    
     "5_Zalaczone_Dokumenty": "D28",  
     "16_Przewoznik": "M14",          
-    "17_Pojazd": "M20",              
     "6_Towar": "D32",                
     "11_Waga": "L32",                
     "13_Instrukcje": "D40",          
     "21_Miejsce": "E47",        
-    "21_Data": "I47",    
-    "Ref_Zlecenia": "O6"             
+    "21_Data": "I47"    
+    # O6 usunięte - zachowujemy oryginalny numer seryjny CMR!
 }
 
 def fill_excel_and_get_bytes(dane, template_path="cmr_template.xlsx"):
-    """Wypełnia fizyczny plik Excel danymi."""
+    """Wypełnia fizyczny plik Excel danymi i dba o formatowanie."""
     wb = openpyxl.load_workbook(template_path)
     ws = wb.active
     
     for klucz, komorka in MAP_CMR.items():
         if klucz in dane:
-            # Obsługa scalonych komórek (zawsze piszemy w lewy górny róg)
             target_cell = komorka
+            # Obsługa scalonych komórek
             for merged_range in ws.merged_cells.ranges:
                 if komorka in merged_range:
                     target_cell = str(merged_range).split(':')[0]
                     break
+            
             ws[target_cell] = dane[klucz]
+            # Wymuszenie zawijania tekstu, żeby długie adresy nie wyjeżdżały poza kratki!
+            ws[target_cell].alignment = Alignment(wrapText=True, vertical='top')
             
     out = io.BytesIO()
     wb.save(out)
@@ -48,8 +51,6 @@ def fill_excel_and_get_bytes(dane, template_path="cmr_template.xlsx"):
 
 def generate_pro_pdf_cmr(dane):
     """Tworzy profesjonalny PDF (4 strony) na bazie szablonu HTML/CSS."""
-    
-    # Budujemy paczkę dla każdej z 4 stron (Nadawca, Odbiorca, Przewoźnik, Admin)
     copies = [
         {"color": "#e11d48", "label": "1 - EGZEMPLARZ DLA NADAWCY / SENDER COPY"},
         {"color": "#2563eb", "label": "2 - EGZEMPLARZ DLA ODBIORCY / CONSIGNEE COPY"},
@@ -58,7 +59,6 @@ def generate_pro_pdf_cmr(dane):
     ]
     
     html_content = ""
-    
     for copy in copies:
         html_content += f"""
         <div class="cmr-page">
@@ -70,11 +70,11 @@ def generate_pro_pdf_cmr(dane):
             
             <div class="grid-container">
                 <div class="box box-1"><strong>1. Nadawca / Sender:</strong><br>{dane['1_Nadawca'].replace('\n', '<br>')}</div>
-                <div class="box box-16"><strong>16. Przewoźnik / Carrier:</strong><br>{dane['16_Przewoznik']}</div>
+                <div class="box box-16"><strong>16. Przewoźnik / Carrier:</strong><br>{dane['16_Przewoznik'].replace('\n', '<br>')}</div>
                 <div class="box box-2"><strong>2. Odbiorca / Consignee:</strong><br>{dane['2_Odbiorca'].replace('\n', '<br>')}</div>
-                <div class="box box-17"><strong>17. Kolejni przewoźnicy / Successive carriers:</strong><br>{dane['17_Pojazd']}</div>
+                <div class="box box-17"><strong>17. Kolejni przewoźnicy / Successive carriers:</strong><br></div>
                 <div class="box box-3"><strong>3. Miejsce rozładunku / Delivery:</strong><br>{dane['3_Miejsce_Przeznaczenia']}</div>
-                <div class="box box-4"><strong>4. Miejsce załadunku / Loading:</strong><br>{dane['4_Miejsce_Zaladunku']}</div>
+                <div class="box box-4"><strong>4. Miejsce załadunku / Loading:</strong><br>{dane['4_Miejsce_Zaladunku'].replace('\n', '<br>')}</div>
             </div>
             
             <div class="box box-full">
@@ -90,7 +90,7 @@ def generate_pro_pdf_cmr(dane):
                 <div class="box">22. Podpis nadawcy:</div>
                 <div class="box">23. Podpis przewoźnika:</div>
             </div>
-            <div class="sys-ref">Ref: {dane['Ref_Zlecenia']} | System: Vorteza Orders PRO</div>
+            <div class="sys-ref">Zal. dokumenty: {dane['5_Zalaczone_Dokumenty']} | System: Vorteza Orders PRO</div>
         </div>
         """
         
@@ -118,18 +118,17 @@ def generate_pro_pdf_cmr(dane):
     pdf_bytes.seek(0)
     return pdf_bytes
 
-# --- INTERFEJS ---
-st.markdown("<h2 style='color: #38bdf8;'>📄 TERMINAL CMR (EXCEL TO PDF)</h2>", unsafe_allow_html=True)
+# --- INTERFEJS TERMINALA ---
+st.markdown("<h2 style='color: #38bdf8;'>📄 TERMINAL CMR (AUTO-EXCEL)</h2>", unsafe_allow_html=True)
 
 if not os.path.exists("cmr_template.xlsx"):
-    st.error("Wgraj plik cmr_template.xlsx do folderu aplikacji na GitHubie!")
+    st.error("Wgraj plik cmr_template.xlsx do głównego folderu aplikacji na GitHubie!")
     st.stop()
 
 with st.spinner("Ładowanie zleceń..."):
     df = fetch_data("Zlecenia")
 
 if not df.empty:
-    # BEZPIECZNE SZUKANIE KOLUMNY DZIAŁ
     if 'Dział' in df.columns:
         df_cargo = df[df['Dział'] == 'LOGISTYKA CARGO']
     elif len(df.columns) > 2:
@@ -149,25 +148,26 @@ if not df.empty:
         if wybor != "Wybierz...":
             r = df_cargo[df_cargo['Numer zlecenia'].astype(str) == wybor].iloc[0]
             
-            # Bezpieczne pobieranie uwag z radzeniem sobie ze zmienną nazwą kolumny
             uwagi_col = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df.columns else (df.columns[13] if len(df.columns) > 13 else 'Brak')
             uwagi_raw = str(r.get(uwagi_col, ''))
+            pojazd = uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "TBA"
             
-            # Przygotowanie danych
+            # Waga z inputa, żeby można było poprawić ręcznie
+            waga_input = st.text_input("Waga brutto do CMR:", value="Zgodnie ze specyfikacją")
+            
+            # Przygotowanie danych z uwzględnieniem danych z Twojego pliku
             dane_doc = {
-                "1_Nadawca": "SQM Prosta Spółka Akcyjna\nul. Poznańska 165\n62-052 Komorniki, PL",
-                "2_Odbiorca": str(r.get('Miejsce Rozladunku', '')),
+                "1_Nadawca": "SQM Prosta Spółka Akcyjna\nul. Poznańska 165, 62-052 Komorniki\nNIP: 7792361182",
+                "2_Odbiorca": f"TARGI / EVENT: {r.get('ID Projektu', 'N/A')}\n{r.get('Miejsce Rozladunku', '')}",
                 "3_Miejsce_Przeznaczenia": str(r.get('Miejsce Rozladunku', '')),
-                "4_Miejsce_Zaladunku": f"{r.get('Miejsce Zaladunku', '')} / {r.get('Data Zaladunku', '')}",
-                "5_Zalaczone_Dokumenty": f"Zlecenie {wybor}",
-                "16_Przewoznik": str(r.get('Zleceniobiorca', '')),
-                "17_Pojazd": uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "TBA",
-                "6_Towar": "Konstrukcje Targowe / Sprzęt AV",
-                "11_Waga": "Zgodnie ze specyfikacją",
+                "4_Miejsce_Zaladunku": f"{r.get('Miejsce Zaladunku', '')}\nData: {r.get('Data Zaladunku', '')}",
+                "5_Zalaczone_Dokumenty": f"Zlecenie: {wybor}",
+                "16_Przewoznik": f"{r.get('Zleceniobiorca', '')}\nAuto: {pojazd}",
+                "6_Towar": "Exhibition Structures / Sprzęt AV",
+                "11_Waga": waga_input,
                 "13_Instrukcje": uwagi_raw,
                 "21_Miejsce": "Komorniki",
-                "21_Data": datetime.now().strftime('%d.%m.%Y'),
-                "Ref_Zlecenia": wybor
+                "21_Data": datetime.now().strftime('%Y-%m-%d')
             }
 
             col_ex, col_pdf = st.columns(2)
