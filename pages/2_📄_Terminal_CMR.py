@@ -1,197 +1,167 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from fpdf import FPDF
 import io
 import os
+import openpyxl
+from weasyprint import HTML
 
 # Importujemy silnik Vortex
 from core import fetch_data
 
-# --- GLOBALNY FILTR ZNAKÓW DLA FPDF ---
-def pdf_sanitize(text):
-    text = str(text)
-    replacements = {
-        'ą':'a', 'ć':'c', 'ę':'e', 'ł':'l', 'ń':'n', 'ó':'o', 'ś':'s', 'ź':'z', 'ż':'z',
-        'Ą':'A', 'Ć':'C', 'Ę':'E', 'Ł':'L', 'Ń':'N', 'Ó':'O', 'Ś':'S', 'Ź':'Z', 'Ż':'Z',
-        '€':'EUR', '–':'-', '—':'-', '”':'"', '„':'"', '’':"'", '“':'"', '\xa0':' '
-    }
-    for pl, eng in replacements.items():
-        text = text.replace(pl, eng)
-    return text.encode('latin-1', 'ignore').decode('latin-1')
+# --- KONFIGURACJA MAPOWANIA (Zgodnie z Twoim plikiem Excel) ---
+MAP_CMR = {
+    "1_Nadawca": "D6",               
+    "2_Odbiorca": "D14",             
+    "3_Miejsce_Przeznaczenia": "D20",
+    "4_Miejsce_Zaladunku": "D24",    
+    "5_Zalaczone_Dokumenty": "D28",  
+    "16_Przewoznik": "M14",          
+    "17_Pojazd": "M20",              
+    "6_Towar": "D32",                
+    "11_Waga": "L32",                
+    "13_Instrukcje": "D40",          
+    "21_Miejsce": "E47",        
+    "21_Data": "I47",    
+    "Ref_Zlecenia": "O6"             
+}
 
-# --- KLASA GENERATORA CMR PRO ---
-class CMR_Pro_Generator(FPDF):
-    def __init__(self):
-        super().__init__()
-        self.copy_num = 1
-        self.copy_label = ""
-        self.primary_color = (25, 118, 210)
+def fill_excel_and_get_bytes(dane, template_path="cmr_template.xlsx"):
+    """Wypełnia fizyczny plik Excel danymi."""
+    wb = openpyxl.load_workbook(template_path)
+    ws = wb.active
+    
+    for klucz, komorka in MAP_CMR.items():
+        if klucz in dane:
+            # Obsługa scalonych komórek (zawsze piszemy w lewy górny róg)
+            target_cell = komorka
+            for merged_range in ws.merged_cells.ranges:
+                if komorka in merged_range:
+                    target_cell = str(merged_range).split(':')[0]
+                    break
+            ws[target_cell] = dane[klucz]
+            
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out
 
-    def header(self):
-        # Logo
-        try:
-            if os.path.exists("logosqm.png"):
-                self.image("logosqm.png", 10, 8, 45)
-            elif os.path.exists("logosqm.jpg"):
-                self.image("logosqm.jpg", 10, 8, 45)
-        except:
-            pass
+def generate_pro_pdf_cmr(dane):
+    """Tworzy profesjonalny PDF (4 strony) na bazie szablonu HTML/CSS."""
+    
+    # Budujemy paczkę dla każdej z 4 stron (Nadawca, Odbiorca, Przewoźnik, Admin)
+    copies = [
+        {"color": "#e11d48", "label": "1 - EGZEMPLARZ DLA NADAWCY / SENDER COPY"},
+        {"color": "#2563eb", "label": "2 - EGZEMPLARZ DLA ODBIORCY / CONSIGNEE COPY"},
+        {"color": "#16a34a", "label": "3 - EGZEMPLARZ DLA PRZEWOŹNIKA / CARRIER COPY"},
+        {"color": "#111827", "label": "4 - ADMINISTRACJA / ADMINISTRATION"}
+    ]
+    
+    html_content = ""
+    
+    for copy in copies:
+        html_content += f"""
+        <div class="cmr-page">
+            <div class="header">
+                <div class="copy-tag" style="background-color: {copy['color']};">{copy['label']}</div>
+                <div class="title">INTERNATIONAL CONSIGNMENT NOTE (CMR)</div>
+                <div class="subtitle">MIĘDZYNARODOWY LIST PRZEWOZOWY</div>
+            </div>
+            
+            <div class="grid-container">
+                <div class="box box-1"><strong>1. Nadawca / Sender:</strong><br>{dane['1_Nadawca'].replace('\n', '<br>')}</div>
+                <div class="box box-16"><strong>16. Przewoźnik / Carrier:</strong><br>{dane['16_Przewoznik']}</div>
+                <div class="box box-2"><strong>2. Odbiorca / Consignee:</strong><br>{dane['2_Odbiorca'].replace('\n', '<br>')}</div>
+                <div class="box box-17"><strong>17. Kolejni przewoźnicy / Successive carriers:</strong><br>{dane['17_Pojazd']}</div>
+                <div class="box box-3"><strong>3. Miejsce rozładunku / Delivery:</strong><br>{dane['3_Miejsce_Przeznaczenia']}</div>
+                <div class="box box-4"><strong>4. Miejsce załadunku / Loading:</strong><br>{dane['4_Miejsce_Zaladunku']}</div>
+            </div>
+            
+            <div class="box box-full">
+                <strong>6-12. Towar i waga / Description of goods & weight:</strong><br>
+                {dane['6_Towar']}<br><br>
+                Waga brutto: {dane['11_Waga']}
+            </div>
+            
+            <div class="box box-full"><strong>13. Instrukcje nadawcy / Sender's instructions:</strong><br>{dane['13_Instrukcje']}</div>
+            
+            <div class="footer-grid">
+                <div class="box">21. Wystawiono w:<br>{dane['21_Miejsce']}, {dane['21_Data']}</div>
+                <div class="box">22. Podpis nadawcy:</div>
+                <div class="box">23. Podpis przewoźnika:</div>
+            </div>
+            <div class="sys-ref">Ref: {dane['Ref_Zlecenia']} | System: Vorteza Orders PRO</div>
+        </div>
+        """
         
-        # Tytuł dokumentu
-        self.set_font("Arial", 'B', 16)
-        self.set_text_color(40, 40, 40)
-        self.set_xy(60, 10)
-        self.cell(140, 8, pdf_sanitize("INTERNATIONAL CONSIGNMENT NOTE (CMR)"), ln=True, align='R')
-        self.set_font("Arial", 'B', 11)
-        self.set_text_color(100, 100, 100)
-        self.set_xy(60, 18)
-        self.cell(140, 5, pdf_sanitize("MIEDZYNARODOWY LIST PRZEWOZOWY"), ln=True, align='R')
-        
-        # Etykieta kopii (np. 1 - Egzemplarz dla nadawcy)
-        self.set_xy(10, 30)
-        self.set_fill_color(*self.primary_color)
-        self.set_text_color(255, 255, 255)
-        self.set_font("Arial", 'B', 10)
-        label_text = f" COPY {self.copy_num} - {self.copy_label} "
-        self.cell(self.get_string_width(label_text)+4, 7, pdf_sanitize(label_text), fill=True, align='C')
-        self.ln(10)
-
-    def footer(self):
-        self.set_y(-20)
-        self.set_font("Arial", 'I', 8)
-        self.set_text_color(150, 150, 150)
-        self.cell(0, 10, pdf_sanitize(f"Strona {self.page_no()} | Wygenerowano przez Vorteza Orders dla SQM"), align='C')
-
-def draw_cmr_box(pdf, title_en, title_pl, content, height=25, width=95):
-    x = pdf.get_x()
-    y = pdf.get_y()
+    css = """
+    @page { size: A4; margin: 0; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    .cmr-page { width: 210mm; height: 297mm; padding: 15mm; border-bottom: 1px dashed #ccc; page-break-after: always; box-sizing: border-box; }
+    .header { text-align: right; margin-bottom: 5mm; }
+    .copy-tag { color: white; display: inline-block; padding: 3px 10px; font-weight: bold; font-size: 10pt; margin-bottom: 5px; }
+    .title { font-size: 16pt; font-weight: bold; color: #333; }
+    .subtitle { font-size: 10pt; color: #666; }
+    .grid-container { display: table; width: 100%; border-collapse: collapse; }
+    .box { border: 1px solid #333; padding: 5px; font-size: 9pt; min-height: 25mm; vertical-align: top; }
+    .box-1, .box-2, .box-3, .box-4 { width: 50%; display: table-cell; }
+    .box-16, .box-17 { width: 50%; display: table-cell; border-left: none; }
+    .box-full { width: 100%; min-height: 40mm; border-top: none; }
+    .footer-grid { display: table; width: 100%; border-top: none; }
+    .footer-grid .box { display: table-cell; width: 33.3%; height: 30mm; }
+    .sys-ref { font-size: 7pt; color: #999; margin-top: 10px; text-align: center; }
+    """
     
-    # Ramka
-    pdf.set_draw_color(200, 200, 200)
-    pdf.rect(x, y, width, height)
-    
-    # Naglowek rubryki
-    pdf.set_font("Arial", 'B', 7)
-    pdf.set_text_color(100, 100, 100)
-    pdf.set_xy(x + 2, y + 2)
-    pdf.cell(width-4, 3, pdf_sanitize(title_en), ln=True)
-    pdf.set_xy(x + 2, y + 5)
-    pdf.cell(width-4, 3, pdf_sanitize(title_pl), ln=True)
-    
-    # Zawartość
-    pdf.set_font("Arial", '', 9)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(x + 2, y + 10)
-    pdf.multi_cell(width-4, 4, pdf_sanitize(content), border=0)
-    
-    # Powrót do pozycji pod ramką
-    pdf.set_xy(x, y + height)
+    full_html = f"<html><head><style>{css}</style></head><body>{html_content}</body></html>"
+    pdf_bytes = io.BytesIO()
+    HTML(string=full_html).write_pdf(pdf_bytes)
+    pdf_bytes.seek(0)
+    return pdf_bytes
 
-# --- LOGIKA TERMINALA ---
-st.markdown("<h2 style='color: #38bdf8;'>📄 TERMINAL CMR PRO</h2>", unsafe_allow_html=True)
-st.markdown("<p style='color: #94a3b8;'>Generowanie 4-stronicowych dokumentów CMR zgodnie ze standardem międzynarodowym.</p>", unsafe_allow_html=True)
+# --- INTERFEJS ---
+st.markdown("<h2 style='color: #38bdf8;'>📄 TERMINAL CMR (EXCEL TO PDF)</h2>", unsafe_allow_html=True)
 
-with st.spinner("Synchronizacja ze zleceniami..."):
+if not os.path.exists("cmr_template.xlsx"):
+    st.error("Wgraj plik cmr_template.xlsx do folderu aplikacji!")
+    st.stop()
+
+with st.spinner("Ładowanie zleceń..."):
     df = fetch_data("Zlecenia")
 
 if not df.empty:
-    # ZABEZPIECZENIE NA BRAK KOLUMNY 'Dział' (np. inna spacja w Google Sheets)
-    if 'Dział' in df.columns:
-        df_cargo = df[df['Dział'] == 'LOGISTYKA CARGO']
-    elif len(df.columns) > 2:
-        col_dzial = df.columns[2]
-        df_cargo = df[df[col_dzial] == 'LOGISTYKA CARGO']
-    else:
-        df_cargo = df
+    lista_nr = df[df['Dział'] == 'LOGISTYKA CARGO']['Numer zlecenia'].astype(str).tolist()
+    wybor = st.selectbox("Wybierz zlecenie do CMR:", ["Wybierz..."] + lista_nr)
+
+    if wybor != "Wybierz...":
+        r = df[df['Numer zlecenia'].astype(str) == wybor].iloc[0]
         
-    if not df_cargo.empty and 'Numer zlecenia' in df_cargo.columns:
-        lista_nr = df_cargo['Numer zlecenia'].astype(str).tolist()
-    else:
-        lista_nr = []
+        # Przygotowanie danych
+        uwagi_raw = str(r.get('Uwagi / Instrukcje', ''))
+        dane_doc = {
+            "1_Nadawca": "SQM Prosta Spółka Akcyjna\nul. Poznańska 165\n62-052 Komorniki, PL",
+            "2_Odbiorca": str(r.get('Miejsce Rozladunku', '')),
+            "3_Miejsce_Przeznaczenia": str(r.get('Miejsce Rozladunku', '')),
+            "4_Miejsce_Zaladunku": f"{r.get('Miejsce Zaladunku', '')} / {r.get('Data Zaladunku', '')}",
+            "5_Zalaczone_Dokumenty": f"Zlecenie {wybor}",
+            "16_Przewoznik": str(r.get('Zleceniobiorca', '')),
+            "17_Pojazd": uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "TBA",
+            "6_Towar": "Konstrukcje Targowe / Sprzęt AV",
+            "11_Waga": "Zgodnie ze specyfikacją",
+            "13_Instrukcje": uwagi_raw,
+            "21_Miejsce": "Komorniki",
+            "21_Data": datetime.now().strftime('%d.%m.%Y'),
+            "Ref_Zlecenia": wybor
+        }
 
-    if lista_nr:
-        wybor = st.selectbox("Wybierz Numer Zlecenia do wystawienia CMR:", ["Wybierz..."] + lista_nr)
+        col_ex, col_pdf = st.columns(2)
+        
+        with col_ex:
+            if st.button("📊 PRZYGOTUJ EXCEL (.xlsx)", use_container_width=True):
+                ex_file = fill_excel_and_get_bytes(dane_doc)
+                st.download_button("📥 POBIERZ WYPEŁNIONY EXCEL", data=ex_file, file_name=f"CMR_{wybor}.xlsx")
 
-        if wybor != "Wybierz...":
-            r = df_cargo[df_cargo['Numer zlecenia'].astype(str) == wybor].iloc[0]
-            
-            with st.container(border=True):
-                st.markdown(f"#### Dane do CMR dla: {wybor}")
-                col1, col2 = st.columns(2)
-                
-                # Bezpieczne pobieranie uwag z radzeniem sobie ze zmienną nazwą kolumny
-                uwagi_col = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df.columns else (df.columns[13] if len(df.columns) > 13 else 'Brak')
-                uwagi_raw = str(r.get(uwagi_col, ''))
-                
-                kierowca = col1.text_input("Kierowca / Nr Rejestracyjny:", value=uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "")
-                waga = col2.text_input("Waga deklarowana (kg):", value="Wg specyfikacji")
-
-            if st.button("⚡ GENERUJ WIELOPSTRONICOWY CMR PDF", type="primary", use_container_width=True):
-                with st.spinner("Składanie stron dokumentu..."):
-                    pdf = CMR_Pro_Generator()
-                    kopie = [
-                        (1, "EGZEMPLARZ DLA NADAWCY (SENDER)"),
-                        (2, "EGZEMPLARZ DLA ODBIORCY (CONSIGNEE)"),
-                        (3, "EGZEMPLARZ DLA PRZEWOZNIKA (CARRIER)"),
-                        (4, "ADMINISTRACJA (ADMINISTRATION)")
-                    ]
-
-                    for num, label in kopie:
-                        pdf.copy_num = num
-                        pdf.copy_label = label
-                        pdf.add_page()
-                        
-                        pdf.set_y(40) # Pozycja startowa po nagłówku
-                        y_start = pdf.get_y()
-                        
-                        # --- LEWA STRONA ---
-                        # 1. Nadawca
-                        draw_cmr_box(pdf, "1. SENDER", "Nadawca", "SQM Prosta Spółka Akcyjna\nul. Piekarna 1\n62-052 Komorniki, PL", height=30)
-                        
-                        # 2. Odbiorca
-                        draw_cmr_box(pdf, "2. CONSIGNEE", "Odbiorca", str(r.get('Miejsce Rozladunku', '')), height=35)
-                        
-                        # 3. Miejsce przeznaczenia
-                        draw_cmr_box(pdf, "3. PLACE OF DELIVERY", "Miejsce rozladunku", str(r.get('Miejsce Rozladunku', '')), height=25)
-                        
-                        # --- PRAWA STRONA ---
-                        pdf.set_xy(105, y_start)
-                        
-                        # 16. Przewoźnik
-                        draw_cmr_box(pdf, "16. CARRIER", "Przewoznik", str(r.get('Zleceniobiorca', '')), height=30)
-                        
-                        # 17. Successive carriers
-                        draw_cmr_box(pdf, "17. SUCCESSIVE CARRIERS", "Kolejni przewoznicy", str(kierowca), height=35)
-                        
-                        # 18. Reservations
-                        draw_cmr_box(pdf, "18. RESERVATIONS", "Zastrzezenia", "N/A", height=25)
-
-                        # --- DOLNY PAS ---
-                        pdf.set_xy(10, pdf.get_y() + 5)
-                        # Sekcja towarowa
-                        draw_cmr_box(pdf, "6-12. DESCRIPTION OF GOODS", "Opis towaru", f"Exhibition Structures / Sprzęt AV / Konstrukcje Targowe\n\nWaga brutto: {waga}", width=190, height=35)
-                        
-                        # Podpis i Data
-                        pdf.ln(5)
-                        curr_y = pdf.get_y()
-                        draw_cmr_box(pdf, "21. ESTABLISHED IN", "Wystawiono w", f"Komorniki, {datetime.now().strftime('%d.%m.%Y')}", width=60)
-                        pdf.set_xy(70, curr_y)
-                        draw_cmr_box(pdf, "22. SENDER SIGNATURE", "Podpis nadawcy", "", width=65)
-                        pdf.set_xy(135, curr_y)
-                        draw_cmr_box(pdf, "23. CARRIER SIGNATURE", "Podpis przewoznika", "", width=65)
-
-                    # Zapisywanie
-                    pdf_bytes = pdf.output(dest='S').encode('latin1')
-                    st.success("✅ Dokument CMR (4 strony) gotowy!")
-                    st.download_button(
-                        "📥 POBIERZ CMR PDF (PRO MULTI-PAGE)", 
-                        data=pdf_bytes, 
-                        file_name=f"CMR_{wybor.replace('/', '_')}.pdf", 
-                        mime="application/pdf", 
-                        use_container_width=True
-                    )
-    else:
-        st.warning("Nie znaleziono zleceń w bazie dla podanego działu.")
-else:
-    st.info("Brak zleceń w głównej bazie danych.")
+        with col_pdf:
+            if st.button("⚡ GENERUJ PDF PRO", type="primary", use_container_width=True):
+                with st.spinner("Przetwarzanie grafiki..."):
+                    pdf_file = generate_pro_pdf_cmr(dane_doc)
+                    st.download_button("📥 POBIERZ CMR PDF (4 STRONY)", data=pdf_file, file_name=f"CMR_{wybor}.pdf")
