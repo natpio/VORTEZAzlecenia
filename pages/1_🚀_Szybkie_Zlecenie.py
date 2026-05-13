@@ -50,7 +50,7 @@ class PRO_TransportOrder(FPDF):
         except:
             pass
         
-        # Bezpieczna szerokość dla nagłówka: od x=65 do x=170 (105mm miejsca)
+        # Bezpieczna szerokość dla nagłówka
         self.set_font("Arial", 'B', 18)
         self.set_text_color(*self.dark_text)
         self.set_xy(65, 12)
@@ -191,7 +191,7 @@ def generate_pro_pdf(dane):
     pdf.cell(50, 6, pdf_sanitize("CARGO TYPE / RODZAJ TOWARU:"))
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, pdf_sanitize("Exhibition Structures"), ln=True)
+    pdf.cell(50, 6, pdf_sanitize("Exhibition Structures / AV Equipment"), ln=True)
     
     pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
@@ -327,28 +327,40 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
             
             def build_full_address(place_name, manual_addr, df):
                 if place_name == "INNE (wpisz ręcznie)": return manual_addr
-                if df is None or df.empty: return place_name
-                row = df[df['Nazwa do listy'] == place_name]
-                if not row.empty:
-                    r = row.iloc[0]
-                    firma = str(r.get('Nazwa pełna / Firma', '')).strip()
-                    ulica = str(r.get('Ulica i numer', '')).strip()
-                    kod = str(r.get('Kod pocztowy', '')).strip()
-                    miasto = str(r.get('Miasto', '')).strip()
-                    kraj = str(r.get('Kraj', '')).strip()
-                    kontakt = str(r.get('Osoba / Tel', '')).strip()
-                    lines = []
-                    if firma and firma != 'nan' and firma.lower() != 'none': lines.append(firma)
-                    elif place_name and place_name != 'nan': lines.append(place_name)
-                    adres_parts = []
-                    if ulica and ulica != 'nan' and ulica.lower() != 'none': adres_parts.append(ulica)
-                    miasto_part = f"{kod if kod != 'nan' and kod.lower() != 'none' else ''} {miasto if miasto != 'nan' and miasto.lower() != 'none' else ''}".strip()
-                    if miasto_part: adres_parts.append(miasto_part)
-                    if kraj and kraj != 'nan' and kraj.lower() != 'none': adres_parts.append(kraj)
-                    adres = ", ".join(adres_parts)
-                    if adres: lines.append(adres)
-                    if kontakt and kontakt != 'nan' and kontakt.lower() != 'none': lines.append(f"Kontakt: {kontakt}")
-                    return "\n".join(lines)
+                
+                if df is not None and not df.empty:
+                    row = df[df['Nazwa do listy'] == place_name]
+                    if not row.empty:
+                        r = row.iloc[0]
+                        firma = str(r.get('Nazwa pełna / Firma', '')).strip()
+                        ulica = str(r.get('Ulica i numer', '')).strip()
+                        kod = str(r.get('Kod pocztowy', '')).strip()
+                        miasto = str(r.get('Miasto', '')).strip()
+                        kraj = str(r.get('Kraj', '')).strip()
+                        kontakt = str(r.get('Osoba / Tel', '')).strip()
+                        
+                        lines = []
+                        if firma and firma != 'nan' and firma.lower() != 'none': lines.append(firma)
+                        elif place_name and place_name != 'nan': lines.append(place_name)
+                        
+                        adres_parts = []
+                        if ulica and ulica != 'nan' and ulica.lower() != 'none': adres_parts.append(ulica)
+                        miasto_part = f"{kod if kod != 'nan' and kod.lower() != 'none' else ''} {miasto if miasto != 'nan' and miasto.lower() != 'none' else ''}".strip()
+                        if miasto_part: adres_parts.append(miasto_part)
+                        if kraj and kraj != 'nan' and kraj.lower() != 'none': adres_parts.append(kraj)
+                        
+                        adres = ", ".join(adres_parts)
+                        if adres: lines.append(adres)
+                        
+                        if kontakt and kontakt != 'nan' and kontakt.lower() != 'none':
+                            lines.append(f"Kontakt: {kontakt}")
+                            
+                        return "\n".join(lines)
+                
+                # FALLBACK DLA DOMYŚLNEGO MAGAZYNU SQM
+                if place_name == "Magazyn SQM Komorniki":
+                    return "SQM Prosta Spółka Akcyjna\nMagazyn Centralny Komorniki\n62-052 Komorniki, Polska\nTel: +48 61 8 950 950"
+                    
                 return place_name
 
             full_zal_pdf = build_full_address(z_sel, z_man, df_miejsca)
