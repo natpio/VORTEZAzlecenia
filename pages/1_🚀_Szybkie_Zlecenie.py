@@ -42,22 +42,29 @@ class PRO_TransportOrder(FPDF):
 
     def header(self):
         try:
+            # Lekko zmniejszone logo, aby zapewnić oddech
             if os.path.exists("logosqm.png"):
-                self.image("logosqm.png", 10, 8, 55)
+                self.image("logosqm.png", 10, 8, 50)
             elif os.path.exists("logosqm.jpg"):
-                self.image("logosqm.jpg", 10, 8, 55)
+                self.image("logosqm.jpg", 10, 8, 50)
         except:
             pass
         
+        # Bezpieczna szerokość dla nagłówka: od x=65 do x=170 (105mm miejsca)
         self.set_font("Arial", 'B', 18)
         self.set_text_color(*self.dark_text)
-        self.set_xy(40, 15)
-        self.cell(160, 10, pdf_sanitize("TRANSPORT ORDER / ZLECENIE TRANSPORTOWE"), ln=True, align='R')
+        self.set_xy(65, 12)
+        self.cell(105, 8, pdf_sanitize("TRANSPORT ORDER"), ln=True, align='R')
         
-        self.set_font("Arial", '', 9)
+        self.set_font("Arial", 'B', 11)
         self.set_text_color(*self.light_text)
-        self.set_xy(80, 25)
-        self.cell(120, 5, pdf_sanitize("SQM Prosta Spolka Akcyjna | Logistics Department"), ln=True, align='R')
+        self.set_xy(65, 20)
+        self.cell(105, 5, pdf_sanitize("ZLECENIE TRANSPORTOWE"), ln=True, align='R')
+        
+        self.set_font("Arial", '', 8)
+        self.set_text_color(*self.light_text)
+        self.set_xy(65, 26)
+        self.cell(105, 5, pdf_sanitize("SQM Prosta Spolka Akcyjna | Logistics Department"), ln=True, align='R')
         self.ln(15)
 
     def footer(self):
@@ -85,7 +92,7 @@ def generate_pro_pdf(dane):
     pdf.add_page()
     pdf.add_watermark()
 
-    # KOD QR
+    # KOD QR (x=175, zajmuje 25mm -> kończy się na x=200)
     token_base = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
     secure_hash = hashlib.md5(token_base.encode()).hexdigest()[:12].upper()
     qr_content = f"SQM-VERIFY: {dane['nr']}\nVALID-HASH: {secure_hash}\nSYSTEM: VORTEX 4.0"
