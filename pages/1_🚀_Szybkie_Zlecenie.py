@@ -15,20 +15,15 @@ class PRO_TransportOrder(FPDF):
         self.watermark_text = watermark_text
 
     def add_watermark(self):
-        """Bezpieczna implementacja zamglonego znaku wodnego dla klasycznego fpdf."""
         self.set_font("Arial", 'B', 45)
         self.set_text_color(240, 240, 240) 
-        
-        # Generowanie siatki poziomej na przemian (efekt cegiełki)
         for j in range(80, 297, 45):
             przesuniecie = 35 if (j // 45) % 2 == 0 else 0
             for i in range(-20, 210, 70):
                 self.text(i + przesuniecie, j, self.watermark_text)
-        
-        self.set_text_color(0, 0, 0) # Powrót do czarnego dla reszty dokumentu
+        self.set_text_color(0, 0, 0)
 
     def header(self):
-        # Logo SQM z pliku
         try:
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 55)
@@ -57,21 +52,23 @@ class PRO_TransportOrder(FPDF):
 
 def generate_pro_pdf(dane):
     def sanitize(text):
-        replacements = {'ą':'a', 'ć':'c', 'ę':'e', 'ł':'l', 'ń':'n', 'ó':'o', 'ś':'s', 'ź':'z', 'ż':'z',
-                        'Ą':'A', 'Ć':'C', 'Ę':'E', 'Ł':'L', 'Ń':'N', 'Ó':'O', 'Ś':'S', 'Ź':'Z', 'Ż':'Z'}
+        text = str(text)
+        replacements = {
+            'ą':'a', 'ć':'c', 'ę':'e', 'ł':'l', 'ń':'n', 'ó':'o', 'ś':'s', 'ź':'z', 'ż':'z',
+            'Ą':'A', 'Ć':'C', 'Ę':'E', 'Ł':'L', 'Ń':'N', 'Ó':'O', 'Ś':'S', 'Ź':'Z', 'Ż':'Z',
+            '€':'EUR', '–':'-', '—':'-', '”':'"', '„':'"', '’':"'", '“':'"', '\xa0':' '
+        }
         for pl, eng in replacements.items():
-            text = str(text).replace(pl, eng)
-        return text
+            text = text.replace(pl, eng)
+        # Twarde usunięcie znaków spoza latin-1 (np. chińskie znaczki, emoji, itp.)
+        return text.encode('latin-1', 'ignore').decode('latin-1')
 
     pdf = PRO_TransportOrder()
     pdf.alias_nb_pages()
     pdf.add_page()
     
-    # 1. NAJPIERW ZNAK WODNY (pod spodem)
     pdf.add_watermark()
 
-    # 2. KOD QR (ZABEZPIECZENIE AUTENTYCZNOŚCI)
-    # Tworzymy unikalny token na podstawie kluczowych danych zlecenia
     token_base = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
     secure_hash = hashlib.md5(token_base.encode()).hexdigest()[:12].upper()
     qr_content = f"SQM-VERIFY: {dane['nr']}\nVALID-HASH: {secure_hash}\nSYSTEM: VORTEX 4.0"
@@ -89,18 +86,18 @@ def generate_pro_pdf(dane):
     if os.path.exists(qr_path):
         os.remove(qr_path)
 
-    # 3. UKŁAD GŁÓWNY
     pdf.set_xy(10, 45)
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(245, 245, 245)
-    pdf.cell(85, 9, f" REFERENCE: {dane['nr']}", ln=False, fill=True)
+    # Zastosowano sanitize do numeru i daty
+    pdf.cell(85, 9, sanitize(f" REFERENCE: {dane['nr']}"), ln=False, fill=True)
     pdf.cell(5, 9, "", ln=False)
-    pdf.cell(100, 9, f" ISSUE DATE: {datetime.now().strftime('%d.%m.%Y')}", ln=True, fill=True)
+    pdf.cell(100, 9, sanitize(f" ISSUE DATE: {datetime.now().strftime('%d.%m.%Y')}"), ln=True, fill=True)
     pdf.ln(4)
 
     def draw_pro_section(title, fields):
         pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(56, 189, 248) # Kolor Vortex Sky Blue
+        pdf.set_text_color(56, 189, 248) 
         pdf.cell(0, 10, sanitize(title), ln=True)
         pdf.set_text_color(0, 0, 0)
         
@@ -111,12 +108,10 @@ def generate_pro_pdf(dane):
             pdf.set_font("Arial", 'B', 9)
             pdf.cell(55, 6, sanitize(label), border=0)
             
-            # Zmienione na multi_cell aby obsługiwało wielolinijkowe adresy i automatycznie "łamało" tekst
             pdf.set_font("Arial", '', 10)
             pdf.set_xy(x_start + 55, y_start + 0.5)
             pdf.multi_cell(135, 5, sanitize(val), border=0)
             
-            # Obliczenie końca komórki (po złamaniu wierszy)
             y_end = pdf.get_y() + 1.5
             pdf.line(10, y_end, 200, y_end)
             pdf.set_xy(10, y_end + 1.5)
@@ -240,7 +235,6 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
             final_zal_db = z_man if z_sel == "INNE (wpisz ręcznie)" else z_sel
             final_roz_db = r_man if r_sel == "INNE (wpisz ręcznie)" else r_sel
             
-            # Funkcja zamieniająca krótką nazwę z listy na pełny adres z bazy (tylko na potrzeby wydruku w PDF)
             def build_full_address(place_name, manual_addr, df):
                 if place_name == "INNE (wpisz ręcznie)":
                     return manual_addr
@@ -278,7 +272,6 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
                     return "\n".join(lines)
                 return place_name
 
-            # Generujemy pełne wielolinijkowe adresy
             full_zal_pdf = build_full_address(z_sel, z_man, df_miejsca)
             full_roz_pdf = build_full_address(r_sel, r_man, df_miejsca)
             
