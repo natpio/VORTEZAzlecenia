@@ -8,7 +8,7 @@ import hashlib
 from core import fetch_data, append_data, get_next_daily_number
 from pricing import get_all_carrier_rates, TRANSIT_DAYS
 
-# --- NOWOCZESNY GENERATOR PDF PRO (DESIGN BAZUJĄCY NA NOWYM LAYOUCIE) ---
+# --- NOWOCZESNY GENERATOR PDF PRO (DWUJĘZYCZNY) ---
 class PRO_TransportOrder(FPDF):
     def __init__(self, watermark_text="SQM", opiekun="PD"):
         super().__init__()
@@ -36,27 +36,28 @@ class PRO_TransportOrder(FPDF):
         except:
             pass
         
-        self.set_font("Arial", 'B', 22)
+        # Poszerzone pole dla dłuższego tytułu
+        self.set_font("Arial", 'B', 18)
         self.set_text_color(*self.dark_text)
-        self.set_xy(80, 15)
-        self.cell(90, 10, "TRANSPORT ORDER", ln=True, align='R')
+        self.set_xy(40, 15)
+        self.cell(160, 10, "TRANSPORT ORDER / ZLECENIE TRANSPORTOWE", ln=True, align='R')
         
         self.set_font("Arial", '', 9)
         self.set_text_color(*self.light_text)
         self.set_xy(80, 25)
-        self.cell(90, 5, "SQM Prosta Spolka Akcyjna | Logistics Department", ln=True, align='R')
+        self.cell(120, 5, "SQM Prosta Spolka Akcyjna | Logistics Department", ln=True, align='R')
         self.ln(15)
 
     def footer(self):
         self.set_y(-30)
         self.set_font("Arial", 'I', 10)
         self.set_text_color(*self.primary_color)
-        self.cell(0, 5, "Thank you for your cooperation!", ln=True, align='C')
+        self.cell(0, 5, "Thank you for your cooperation! / Dziękujemy za współpracę!", ln=True, align='C')
         
         self.set_font("Arial", '', 8)
         self.set_text_color(*self.light_text)
         
-        # Dynamiczne przypisanie danych kontaktowych na podstawie opiekuna
+        # Dynamiczne przypisanie danych kontaktowych
         if self.opiekun == "PD":
             email = "piotr.dukiel@sqm.eu"
             telefon = "+48 577 63 63 67"
@@ -79,7 +80,6 @@ def generate_pro_pdf(dane):
             text = text.replace(pl, eng)
         return text.encode('latin-1', 'ignore').decode('latin-1')
 
-    # Przekazujemy opiekuna do klasy generującej PDF
     pdf = PRO_TransportOrder(opiekun=dane.get('opiekun', 'PD'))
     pdf.alias_nb_pages()
     pdf.add_page()
@@ -139,14 +139,15 @@ def generate_pro_pdf(dane):
     def draw_row(label, val, border_b=True):
         x_start = pdf.get_x()
         y_start = pdf.get_y()
-        pdf.set_font("Arial", 'B', 9)
+        pdf.set_font("Arial", 'B', 8) # Zmniejszono czcionkę dla dwujęzycznych etykiet
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(55, 6, sanitize(label), border=0)
+        # Zwiększono szerokość komórki etykiety z 55 na 65
+        pdf.cell(65, 6, sanitize(label), border=0)
         
         pdf.set_font("Arial", 'B', 10)
         pdf.set_text_color(40, 40, 40)
-        pdf.set_xy(x_start + 55, y_start + 0.5)
-        pdf.multi_cell(135, 5, sanitize(val), border=0)
+        pdf.set_xy(x_start + 65, y_start + 0.5)
+        pdf.multi_cell(125, 5, sanitize(val), border=0)
         
         y_end = pdf.get_y() + 1.5
         if border_b:
@@ -155,80 +156,80 @@ def generate_pro_pdf(dane):
         pdf.set_xy(10, y_end + 2)
 
     # 01 PARTIES & ASSETS
-    draw_section_header(1, "PARTIES & ASSETS")
-    draw_row("CONTRACTOR:", dane['przewoznik'])
-    draw_row("VEHICLE & DRIVER:", dane['auto'] if dane['auto'] else "TBA")
-    draw_row("VALUATION MODEL:", dane['typ_zlecenia'], border_b=False)
+    draw_section_header(1, "PARTIES & ASSETS / STRONY I POJAZD")
+    draw_row("CONTRACTOR / PRZEWOŹNIK:", dane['przewoznik'])
+    draw_row("VEHICLE & DRIVER / AUTO I KIEROWCA:", dane['auto'] if dane['auto'] else "TBA / Do podania")
+    draw_row("VALUATION MODEL / TRYB WYCENY:", dane['typ_zlecenia'], border_b=False)
     pdf.ln(4)
 
     # 02 LOGISTICS TIMELINE
-    draw_section_header(2, "LOGISTICS TIMELINE")
-    draw_row("LOADING PLACE:", dane['zaladunek'])
-    draw_row("LOADING DATE:", dane['data_zal'])
-    draw_row("UNLOADING PLACE:", dane['rozladunek'])
+    draw_section_header(2, "LOGISTICS TIMELINE / HARMONOGRAM LOGISTYCZNY")
+    draw_row("LOADING PLACE / MIEJSCE ZAŁADUNKU:", dane['zaladunek'])
+    draw_row("LOADING DATE / DATA ZAŁADUNKU:", dane['data_zal'])
+    draw_row("UNLOADING PLACE / MIEJSCE ROZŁADUNKU:", dane['rozladunek'])
     if dane['typ_zlecenia'] == "Pełny event":
-        draw_row("UNLOADING DATE:", dane['data_roz'])
-        draw_row("EMPTIES IN:", dane['data_emp_in'])
-        draw_row("RETURN LOAD:", dane['data_emp_out'], border_b=False)
+        draw_row("UNLOADING DATE / DATA ROZŁADUNKU:", dane['data_roz'])
+        draw_row("EMPTIES IN / ODBIÓR PUSTYCH:", dane['data_emp_in'])
+        draw_row("RETURN LOAD / DATA POWROTU:", dane['data_emp_out'], border_b=False)
     else:
-        draw_row("UNLOADING DATE:", dane['data_roz'], border_b=False)
+        draw_row("UNLOADING DATE / DATA ROZŁADUNKU:", dane['data_roz'], border_b=False)
     pdf.ln(4)
 
     # 03 FINANCIALS & CARGO
-    draw_section_header(3, "FINANCIALS & CARGO")
+    draw_section_header(3, "FINANCIALS & CARGO / FINANSE I ŁADUNEK")
     
     start_y = pdf.get_y()
     
-    pdf.set_font("Arial", 'B', 9)
+    pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(40, 6, "CARGO TYPE:")
+    pdf.cell(50, 6, "CARGO TYPE / RODZAJ TOWARU:")
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(60, 6, "Exhibition Structures", ln=True)
+    pdf.cell(50, 6, "Exhibition Structures", ln=True)
     
-    pdf.set_font("Arial", 'B', 9)
+    pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(40, 6, "GROSS WEIGHT:")
+    pdf.cell(50, 6, "GROSS WEIGHT / WAGA BRUTTO:")
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(60, 6, f"{dane['waga']} kg", ln=True)
+    pdf.cell(50, 6, f"{dane['waga']} kg", ln=True)
     
-    pdf.set_font("Arial", 'B', 9)
+    pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(40, 6, "PAYMENT TERMS:")
+    pdf.cell(50, 6, "PAYMENT TERMS / PŁATNOŚĆ:")
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(60, 6, "45 days after invoice", ln=True)
+    pdf.cell(50, 6, "45 days after invoice", ln=True)
 
-    # DUŻY NIEBIESKI BLOK Z CENĄ
-    pdf.set_xy(110, start_y)
+    # DUŻY NIEBIESKI BLOK Z CENĄ (Przesunięty lekko w prawo by zrobić miejsce dwujęzycznym etykietom)
+    pdf.set_xy(115, start_y)
     pdf.set_fill_color(25, 118, 210)
-    pdf.rect(110, start_y, 90, 25, 'F')
+    pdf.rect(115, start_y, 85, 25, 'F')
     
-    pdf.set_xy(115, start_y + 3)
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_xy(120, start_y + 3)
+    pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(80, 5, "TOTAL NET RATE", ln=True)
+    pdf.cell(75, 5, sanitize("TOTAL NET RATE / KWOTA NETTO"), ln=True)
     
-    pdf.set_xy(115, start_y + 10)
+    pdf.set_xy(120, start_y + 10)
     pdf.set_font("Arial", 'B', 20)
-    pdf.cell(80, 10, sanitize(f"{dane['stawka']} {dane['waluta']}"), ln=True)
+    pdf.cell(75, 10, sanitize(f"{dane['stawka']} {dane['waluta']}"), ln=True)
 
     if float(dane['postoj']) > 0:
-        pdf.set_xy(110, start_y + 26)
+        pdf.set_xy(115, start_y + 26)
         pdf.set_fill_color(240, 240, 240)
-        pdf.rect(110, start_y + 26, 90, 8, 'F')
-        pdf.set_xy(115, start_y + 27)
-        pdf.set_font("Arial", 'B', 9)
+        pdf.rect(115, start_y + 26, 85, 8, 'F')
+        pdf.set_xy(120, start_y + 27)
+        pdf.set_font("Arial", 'B', 8)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(40, 5, "OVERLAY PER DAY:")
+        pdf.cell(35, 5, sanitize("OVERLAY / POSTÓJ:"))
         pdf.set_text_color(40, 40, 40)
-        pdf.cell(40, 5, sanitize(f"{dane['postoj']} {dane['waluta']}"), align='R')
+        pdf.cell(40, 5, sanitize(f"{dane['postoj']} {dane['waluta']} / day"), align='R')
 
     pdf.set_xy(10, max(pdf.get_y(), start_y + 35) + 5)
 
     # 04 SPECIAL PROVISIONS
-    draw_section_header(4, "SPECIAL PROVISIONS")
+    draw_section_header(4, "SPECIAL PROVISIONS / UWAGI SPECJALNE")
     pdf.set_text_color(40, 40, 40)
     pdf.set_font("Arial", 'I', 10)
     instructions = dane['uwagi'] if dane['uwagi'] else "Cargo must be secured with professional belts. Driver must follow exhibition center protocols."
@@ -359,7 +360,7 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
                 "rozladunek": full_roz_pdf, "data_roz": str(data_roz),
                 "data_emp_in": str(data_emp_in), "data_emp_out": str(data_emp_out),
                 "waga": waga, "auto": c_auto, "uwagi": instrukcje,
-                "opiekun": podpis # <-- Dodano parametr opiekuna
+                "opiekun": podpis 
             }
             
             historia = f"CYKL: {data_zal} -> {data_roz}" + (f" | EMP: {data_emp_in} | POWRÓT: {data_emp_out}" if typ_zlecenia == "Pełny event" else "")
