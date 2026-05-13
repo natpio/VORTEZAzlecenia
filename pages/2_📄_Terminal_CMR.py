@@ -1,143 +1,177 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from fpdf import FPDF
 import io
 import os
-
-try:
-    import openpyxl
-except ImportError:
-    st.error("Brak biblioteki 'openpyxl'. Dodaj ją do pliku requirements.txt!")
-    st.stop()
+import hashlib
 
 # Importujemy silnik Vortex
 from core import fetch_data
 
-# ==========================================
-# ⚙️ MAPOWANIE KOMÓREK SZABLONU CMR (EXCEL)
-# Odczytane z wgranego szablonu cmr_template.xlsx
-# ==========================================
-MAP_CMR = {
-    "1_Nadawca": "D6",               # Rubryka 1: Nadawca
-    "2_Odbiorca": "D14",             # Rubryka 2: Odbiorca
-    "3_Miejsce_Przeznaczenia": "D20",# Rubryka 3: Miejsce przeznaczenia (rozładunek)
-    "4_Miejsce_Zaladunku": "D24",    # Rubryka 4: Miejsce i data załadunku
-    "5_Zalaczone_Dokumenty": "D28",  # Rubryka 5: Załączone dokumenty
-    "16_Przewoznik": "M14",          # Rubryka 16: Przewoźnik
-    "17_Pojazd": "M20",              # Rubryka 17: Numery rejestracyjne
-    "6_Towar": "D32",                # Rubryki 6-12: Cechy i opis towaru
-    "11_Waga": "L32",                # Rubryka 11: Waga brutto
-    "13_Instrukcje": "D40",          # Rubryka 13: Instrukcje nadawcy
-    "21_Wystawiono_w": "E47",        # Rubryka 21: Miejscowość
-    "21_Data_Wystawienia": "I47",    # Rubryka 21: Data
-    "Ref_Zlecenia": "O6"             # Numer referencyjny zlecenia
-}
+# --- GLOBALNY FILTR ZNAKÓW DLA FPDF ---
+def pdf_sanitize(text):
+    text = str(text)
+    replacements = {
+        'ą':'a', 'ć':'c', 'ę':'e', 'ł':'l', 'ń':'n', 'ó':'o', 'ś':'s', 'ź':'z', 'ż':'z',
+        'Ą':'A', 'Ć':'C', 'Ę':'E', 'Ł':'L', 'Ń':'N', 'Ó':'O', 'Ś':'S', 'Ź':'Z', 'Ż':'Z',
+        '€':'EUR', '–':'-', '—':'-', '”':'"', '„':'"', '’':"'", '“':'"', '\xa0':' '
+    }
+    for pl, eng in replacements.items():
+        text = text.replace(pl, eng)
+    return text.encode('latin-1', 'ignore').decode('latin-1')
 
-def fill_excel_cmr(dane, template_path="cmr_template.xlsx"):
-    """Ładuje szablon Excel, wstrzykuje dane w odpowiednie komórki i zwraca plik w pamięci."""
-    wb = openpyxl.load_workbook(template_path)
-    ws = wb.active # Bierzemy pierwszy aktywny arkusz
+# --- KLASA GENERATORA CMR PRO ---
+class CMR_Pro_Generator(FPDF):
+    def __init__(self, copy_num=1, copy_label=""):
+        super().__init__()
+        self.copy_num = copy_num
+        self.copy_label = copy_label
+        self.primary_color = (25, 118, 210)
+
+    def header(self):
+        # Logo
+        try:
+            if os.path.exists("logosqm.png"):
+                self.image("logosqm.png", 10, 8, 45)
+        except:
+            pass
+        
+        # Tytuł dokumentu
+        self.set_font("Arial", 'B', 16)
+        self.set_text_color(40, 40, 40)
+        self.set_xy(60, 10)
+        self.cell(140, 8, pdf_sanitize("INTERNATIONAL CONSIGNMENT NOTE (CMR)"), ln=True, align='R')
+        self.set_font("Arial", 'B', 11)
+        self.set_text_color(100, 100, 100)
+        self.set_xy(60, 18)
+        self.cell(140, 5, pdf_sanitize("MIEDZYNARODOWY LIST PRZEWOZOWY"), ln=True, align='R')
+        
+        # Etykieta kopii (np. 1 - Egzemplarz dla nadawcy)
+        self.set_xy(10, 30)
+        self.set_fill_color(*self.primary_color)
+        self.set_text_color(255, 255, 255)
+        self.set_font("Arial", 'B', 10)
+        label_text = f" COPY {self.copy_num} - {self.copy_label} "
+        self.cell(self.get_string_width(label_text)+4, 7, pdf_sanitize(label_text), fill=True, align='C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-20)
+        self.set_font("Arial", 'I', 8)
+        self.set_text_color(150, 150, 150)
+        self.cell(0, 10, pdf_sanitize(f"Strona {self.page_no()} | Wygenerowano przez Vorteza Orders dla SQM"), align='C')
+
+def draw_cmr_box(pdf, title_en, title_pl, content, height=25, width=95):
+    x = pdf.get_x()
+    y = pdf.get_y()
     
-    for klucz, komorka in MAP_CMR.items():
-        if klucz in dane:
-            is_merged = False
-            # Sprawdzamy czy podana komórka znajduje się w jakimś scalonym bloku
-            for merged_range in ws.merged_cells.ranges:
-                if komorka in merged_range:
-                    # Jeśli tak, znajdujemy lewy górny róg scalenia (np. z "D5:H10" bierzemy "D5")
-                    top_left_cell = str(merged_range).split(':')[0]
-                    ws[top_left_cell] = dane[klucz]
-                    is_merged = True
-                    break
-            
-            # Jeśli komórka nie jest scalona, wpisujemy normalnie
-            if not is_merged:
-                ws[komorka] = dane[klucz]
-            
-    # Zapisujemy do pamięci (BytesIO) żeby użytkownik mógł to od razu pobrać
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output
+    # Ramka
+    pdf.set_draw_color(200, 200, 200)
+    pdf.rect(x, y, width, height)
+    
+    # Naglowek rubryki
+    pdf.set_font("Arial", 'B', 7)
+    pdf.set_text_color(100, 100, 100)
+    pdf.set_xy(x + 2, y + 2)
+    pdf.cell(width-4, 3, pdf_sanitize(title_en), ln=True)
+    pdf.set_xy(x + 2, y + 5)
+    pdf.cell(width-4, 3, pdf_sanitize(title_pl), ln=True)
+    
+    # Zawartość
+    pdf.set_font("Arial", '', 9)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(x + 2, y + 10)
+    pdf.multi_cell(width-4, 4, pdf_sanitize(content), border=0)
+    
+    # Powrót do pozycji pod ramką (jeśli nie chcemy obok)
+    pdf.set_xy(x, y + height)
 
-# --- INTERFEJS TERMINALA ---
-st.markdown("<h1 style='color: #38bdf8;'>📄 TERMINAL CMR (AUTO-EXCEL)</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color: #94a3b8;'>Generowanie międzynarodowych listów przewozowych w oparciu o standaryzowany szablon Excel.</p>", unsafe_allow_html=True)
+# --- LOGIKA TERMINALA ---
+st.markdown("<h2 style='color: #38bdf8;'>📄 TERMINAL CMR PRO</h2>", unsafe_allow_html=True)
+st.markdown("<p style='color: #94a3b8;'>Generowanie 4-stronicowych dokumentów CMR zgodnie ze standardem międzynarodowym.</p>", unsafe_allow_html=True)
 
-# Weryfikacja czy szablon w ogóle istnieje na serwerze
-if not os.path.exists("cmr_template.xlsx"):
-    st.error("🚨 BRAK SZABLONU: Wgraj plik `cmr_template.xlsx` do głównego folderu aplikacji na GitHubie, aby Terminal zadziałał!")
-    st.stop()
-
-with st.spinner("Ładowanie rejestru zleceń..."):
+with st.spinner("Synchronizacja ze zleceniami..."):
     df = fetch_data("Zlecenia")
 
 if not df.empty:
-    # Filtrowanie zleceń Cargo
-    if 'Typ transportu' in df.columns:
-        df_cargo = df[df['Typ transportu'] == 'TARGI'].iloc[::-1]
-    else:
-        df_cargo = df.copy()
-    
-    if not df_cargo.empty:
+    lista_nr = df[df['Dział'] == 'LOGISTYKA CARGO']['Numer zlecenia'].astype(str).tolist()
+    wybor = st.selectbox("Wybierz Numer Zlecenia do wystawienia CMR:", ["Wybierz..."] + lista_nr)
+
+    if wybor != "Wybierz...":
+        r = df[df['Numer zlecenia'].astype(str) == wybor].iloc[0]
+        
         with st.container(border=True):
-            st.markdown("### 🔍 Wybierz zlecenie")
-            lista_nr = df_cargo['Numer zlecenia'].astype(str).tolist()
-            wybor = st.selectbox("Wybierz Numer Zlecenia z bazy:", lista_nr, index=0)
-            
-            r = df_cargo[df_cargo['Numer zlecenia'].astype(str) == wybor].iloc[0]
-            
-            st.markdown("---")
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write(f"**Przewoźnik:** {r.get('Zleceniobiorca', 'N/A')}")
-                st.write(f"**Trasa:** {r.get('Miejsce Zaladunku', 'N/A')} ➡️ {r.get('Miejsce Rozladunku', 'N/A')}")
-            with c2:
-                st.write(f"**Data Załadunku:** {r.get('Data Zaladunku', 'N/A')}")
-                
-            # Parsowanie uwag, aby wyciągnąć ewentualnie wpisanego kierowcę/auto
-            uwagi_raw = str(r.get('Uwagi / Instrukcje', ''))
-            pojazd = "TBA"
-            if 'AUTO: ' in uwagi_raw:
-                pojazd = uwagi_raw.split('AUTO: ')[-1].split(' ||')[0]
-                
-            # MAPOWANIE DANYCH Z BAZY POD SZABLON
-            dane_doc = {
-                "1_Nadawca": "SQM Prosta Spółka Akcyjna\nLogistics Department\nul. Piekarna 1\n62-052 Komorniki, Polska",
-                "2_Odbiorca": f"TARGI / EVENT: {r.get('ID Projektu', 'N/A')}\n{r.get('Miejsce Rozladunku', 'N/A')}",
-                "3_Miejsce_Przeznaczenia": str(r.get('Miejsce Rozladunku', '')),
-                "4_Miejsce_Zaladunku": f"{r.get('Miejsce Zaladunku', '')}\nData: {r.get('Data Zaladunku', '')}",
-                "5_Zalaczone_Dokumenty": f"Zlecenie: {wybor}",
-                "16_Przewoznik": str(r.get('Zleceniobiorca', '')),
-                "17_Pojazd": pojazd,
-                "6_Towar": str(r.get('Towar', 'Exhibition Structures / Sprzęt AV')),
-                "11_Waga": "Wg Packing List", 
-                "13_Instrukcje": uwagi_raw,
-                "21_Wystawiono_w": "Komorniki",
-                "21_Data_Wystawienia": datetime.now().strftime('%Y-%m-%d'),
-                "Ref_Zlecenia": f"REF: {wybor}"
-            }
+            st.markdown(f"#### Dane do CMR dla: {wybor}")
+            col1, col2 = st.columns(2)
+            kierowca = col1.text_input("Kierowca / Nr Rejestracyjny:", value=str(r.get('Uwagi / Instrukcje', '')).split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in str(r.get('Uwagi / Instrukcje', '')) else "")
+            waga = col2.text_input("Waga deklarowana (kg):", value="Wg specyfikacji")
 
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            if st.button("⚡ GENERUJ PLIK EXCEL (CMR)", type="primary", use_container_width=True):
-                with st.spinner("Wypełnianie szablonu CMR..."):
-                    try:
-                        excel_file = fill_excel_cmr(dane_doc)
-                        st.success("✅ Dokument CMR pomyślnie wypełniony!")
-                        
-                        st.download_button(
-                            label="📥 POBIERZ WYPEŁNIONY CMR (.XLSX)",
-                            data=excel_file,
-                            file_name=f"CMR_{wybor.replace('/', '_')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
-                        )
-                    except Exception as e:
-                        st.error(f"Wystąpił błąd podczas uzupełniania excela: {e}")
-    else:
-        st.info("Brak aktywnych zleceń w bazie.")
+        if st.button("⚡ GENERUJ WIELOPSTRONICOWY CMR PDF", type="primary", use_container_width=True):
+            with st.spinner("Składanie stron dokumentu..."):
+                pdf = FPDF()
+                kopie = [
+                    (1, "EGZEMPLARZ DLA NADAWCY (SENDER)"),
+                    (2, "EGZEMPLARZ DLA ODBIORCY (CONSIGNEE)"),
+                    (3, "EGZEMPLARZ DLA PRZEWOZNIKA (CARRIER)"),
+                    (4, "ADMINISTRACJA (ADMINISTRATION)")
+                ]
+
+                for num, label in kopie:
+                    # Ręczne symulowanie nagłówka dla każdej strony
+                    pdf.add_page()
+                    
+                    # Logika nagłówka PRO (uproszczona wewnątrz pętli)
+                    pdf.set_font("Arial", 'B', 14)
+                    pdf.cell(0, 10, pdf_sanitize(f"CMR - COPY {num} / {label}"), ln=True, align='C')
+                    pdf.ln(5)
+
+                    # --- RUBRYKI CMR ---
+                    y_start = pdf.get_y()
+                    
+                    # 1. Nadawca
+                    draw_cmr_box(pdf, "1. SENDER", "Nadawca", "SQM Prosta Spółka Akcyjna\nul. Piekarna 1\n62-052 Komorniki, PL", height=30)
+                    
+                    # 2. Odbiorca
+                    draw_cmr_box(pdf, "2. CONSIGNEE", "Odbiorca", str(r.get('Miejsce Rozladunku', '')), height=35)
+                    
+                    # 3. Miejsce przeznaczenia
+                    draw_cmr_box(pdf, "3. PLACE OF DELIVERY", "Miejsce rozladunku", str(r.get('Miejsce Rozladunku', '')), height=25)
+                    
+                    # Pozycjonowanie obok (kolumna prawa)
+                    pdf.set_xy(105, y_start)
+                    
+                    # 16. Przewoźnik
+                    draw_cmr_box(pdf, "16. CARRIER", "Przewoznik", str(r.get('Zleceniobiorca', '')), height=30)
+                    
+                    # 17. Successive carriers
+                    draw_cmr_box(pdf, "17. SUCCESSIVE CARRIERS", "Kolejni przewoznicy", str(kierowca), height=35)
+                    
+                    # 18. Reservations
+                    draw_cmr_box(pdf, "18. RESERVATIONS", "Zastrzezenia", "N/A", height=25)
+
+                    # Sekcja towarowa
+                    pdf.set_xy(10, pdf.get_y() + 5)
+                    draw_cmr_box(pdf, "6-12. DESCRIPTION OF GOODS", "Opis towaru", "Exhibition Structures / Sprzęt AV / Konstrukcje Targowe", width=190, height=40)
+                    
+                    # Podpis i Data
+                    pdf.ln(5)
+                    curr_y = pdf.get_y()
+                    draw_cmr_box(pdf, "21. ESTABLISHED IN", "Wystawiono w", f"Komorniki, {datetime.now().strftime('%d.%m.%Y')}", width=60)
+                    pdf.set_xy(70, curr_y)
+                    draw_cmr_box(pdf, "22. SENDER SIGNATURE", "Podpis nadawcy", "", width=65)
+                    pdf.set_xy(135, curr_y)
+                    draw_cmr_box(pdf, "23. CARRIER SIGNATURE", "Podpis przewoznika", "", width=65)
+
+                # Export
+                pdf_bytes = pdf.output(dest='S').encode('latin1')
+                st.success("✅ Dokument CMR (4 strony) gotowy!")
+                st.download_button(
+                    "📥 POBIERZ CMR PDF (PRO MULTI-PAGE)", 
+                    data=pdf_bytes, 
+                    file_name=f"CMR_{wybor.replace('/', '_')}.pdf", 
+                    mime="application/pdf", 
+                    use_container_width=True
+                )
 else:
-    st.error("Baza zleceń jest pusta.")
-
-st.caption("Vorteza Orders dla SQM | Module: CMR Excel Terminal")
+    st.info("Brak zleceń do wystawienia CMR.")
