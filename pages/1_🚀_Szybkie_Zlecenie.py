@@ -108,7 +108,7 @@ def generate_pro_pdf(dane):
     pdf.set_font("Arial", 'B', 9)
     pdf.set_fill_color(25, 118, 210) 
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(25, 8, " REF ", border=0, fill=True, align='C')
+    pdf.cell(25, 8, pdf_sanitize(" REF "), border=0, fill=True, align='C')
     
     pdf.set_fill_color(245, 245, 245)
     pdf.set_text_color(40, 40, 40)
@@ -118,7 +118,7 @@ def generate_pro_pdf(dane):
     
     pdf.set_fill_color(25, 118, 210)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(25, 8, " DATE ", border=0, fill=True, align='C')
+    pdf.cell(25, 8, pdf_sanitize(" DATE "), border=0, fill=True, align='C')
     
     pdf.set_fill_color(245, 245, 245)
     pdf.set_text_color(40, 40, 40)
@@ -129,7 +129,7 @@ def generate_pro_pdf(dane):
         pdf.set_fill_color(25, 118, 210)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(10, 10, str(num).zfill(2), fill=True, align='C')
+        pdf.cell(10, 10, pdf_sanitize(str(num).zfill(2)), fill=True, align='C')
         
         pdf.set_text_color(40, 40, 40)
         pdf.cell(5, 10, "", border=0)
@@ -181,24 +181,24 @@ def generate_pro_pdf(dane):
     
     pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(50, 6, "CARGO TYPE / RODZAJ TOWARU:")
+    pdf.cell(50, 6, pdf_sanitize("CARGO TYPE / RODZAJ TOWARU:"))
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, "Exhibition Structures", ln=True)
+    pdf.cell(50, 6, pdf_sanitize("Exhibition Structures"), ln=True)
     
     pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(50, 6, "GROSS WEIGHT / WAGA BRUTTO:")
+    pdf.cell(50, 6, pdf_sanitize("GROSS WEIGHT / WAGA BRUTTO:"))
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, f"{dane['waga']} kg", ln=True)
+    pdf.cell(50, 6, pdf_sanitize(f"{dane['waga']} kg"), ln=True)
     
     pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(50, 6, "PAYMENT TERMS / PŁATNOŚĆ:")
+    pdf.cell(50, 6, pdf_sanitize("PAYMENT TERMS / PŁATNOŚĆ:"))
     pdf.set_font("Arial", 'B', 10)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, "45 days after invoice", ln=True)
+    pdf.cell(50, 6, pdf_sanitize("45 days after invoice"), ln=True)
 
     # DUŻY NIEBIESKI BLOK Z CENĄ
     pdf.set_xy(115, start_y)
