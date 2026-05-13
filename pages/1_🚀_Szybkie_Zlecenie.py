@@ -14,18 +14,21 @@ class PRO_TransportOrder(FPDF):
         super().__init__()
         self.watermark_text = watermark_text
 
-    def header(self):
-        # 1. ZNAK WODNY (Rysowany najpierw, żeby był tłem)
+    def add_watermark(self):
+        """Bezpieczna implementacja zamglonego znaku wodnego dla klasycznego fpdf."""
         self.set_font("Arial", 'B', 45)
-        self.set_text_color(245, 245, 245) # Bardzo jasny szary
-        # Zaczynamy od y=80, żeby nagłówek i logo były czyste i czytelne
+        self.set_text_color(240, 240, 240) 
+        
+        # Generowanie siatki poziomej na przemian (efekt cegiełki)
         for j in range(80, 297, 45):
             przesuniecie = 35 if (j // 45) % 2 == 0 else 0
             for i in range(-20, 210, 70):
                 self.text(i + przesuniecie, j, self.watermark_text)
-        self.set_text_color(0, 0, 0) # Powrót do czarnego dla tekstu
         
-        # 2. LOGO FIRMY
+        self.set_text_color(0, 0, 0) # Powrót do czarnego dla reszty dokumentu
+
+    def header(self):
+        # Logo SQM z pliku
         try:
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 55)
@@ -34,7 +37,6 @@ class PRO_TransportOrder(FPDF):
         except:
             pass
         
-        # 3. TEKST NAGŁÓWKOWY (Lekko przesunięty w lewo, żeby zrobić miejsce na QR)
         self.set_font("Arial", 'B', 20)
         self.set_text_color(40, 40, 40)
         self.set_xy(80, 15)
@@ -63,9 +65,13 @@ def generate_pro_pdf(dane):
 
     pdf = PRO_TransportOrder()
     pdf.alias_nb_pages()
-    pdf.add_page() # To automatycznie wywołuje funkcję header() ze znakiem wodnym i logo
+    pdf.add_page()
+    
+    # 1. NAJPIERW ZNAK WODNY (pod spodem)
+    pdf.add_watermark()
 
-    # --- KOD QR (Prawy górny róg) ---
+    # 2. KOD QR (ZABEZPIECZENIE AUTENTYCZNOŚCI)
+    # Tworzymy unikalny token na podstawie kluczowych danych zlecenia
     token_base = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
     secure_hash = hashlib.md5(token_base.encode()).hexdigest()[:12].upper()
     qr_content = f"SQM-VERIFY: {dane['nr']}\nVALID-HASH: {secure_hash}\nSYSTEM: VORTEX 4.0"
@@ -79,12 +85,11 @@ def generate_pro_pdf(dane):
         img_qr.save(tmp, format="PNG")
         qr_path = tmp.name
 
-    # QR Code precyzyjnie obok tekstów nagłówkowych, bezpiecznie z dala od szarych pasków
-    pdf.image(qr_path, 175, 10, 25) 
+    pdf.image(qr_path, 175, 10, 25)
     if os.path.exists(qr_path):
         os.remove(qr_path)
 
-    # --- UKŁAD GŁÓWNY (Zaczynamy od osi Y = 45) ---
+    # 3. UKŁAD GŁÓWNY
     pdf.set_xy(10, 45)
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(245, 245, 245)
@@ -207,8 +212,10 @@ with st.container(border=True):
     d_auto, d_wart = st.columns(2)
     c_auto = d_auto.text_input("Auto / Kierowca:", placeholder="np. PO 12345 / Jan Kowalski")
     wartosc_towaru = d_wart.number_input("Wartość towaru (PLN):", min_value=0, step=1000, value=100000)
+    
     u1, u2 = st.columns([3, 1])
-    instrukcje = u1.text_input("Uwagi dla kierowcy:")
+    domyslny_tekst = "Parking strzeżony, pasy zabezpieczajace; załadować po długości, casy nie mogą leżeć, kłódka / Guarded parking, safety belts; load lengthwise, the cases cannot lie down, safe lock"
+    instrukcje = u1.text_area("Uwagi dla kierowcy (Special Provisions):", value=domyslny_tekst, height=70)
     podpis = u2.radio("Podpis:", ["PD", "PK"], horizontal=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
