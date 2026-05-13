@@ -8,3 +8,5 @@ plotly
 Pillow
 google-generativeai
 openpyxl
+weasyprint
+pandas
