@@ -52,7 +52,7 @@ class PRO_TransportOrder(FPDF):
         self.set_y(-25)
         self.set_font("Arial", 'I', 8)
         self.set_text_color(150, 150, 150)
-        self.cell(0, 5, "Dokument wygenerowany systemowo przez Vorteza Orders 2.0. Dane poufne.", ln=True, align='C')
+        self.cell(0, 5, "Dokument wygenerowany systemowo przez Vortex Nexus 4.0 PRO. Dane poufne.", ln=True, align='C')
         self.cell(0, 5, f"Strona {self.page_no()} / {{nb}}", align='C')
 
 def generate_pro_pdf(dane):
@@ -105,10 +105,21 @@ def generate_pro_pdf(dane):
         pdf.set_text_color(0, 0, 0)
         
         for label, val in fields:
+            x_start = pdf.get_x()
+            y_start = pdf.get_y()
+            
             pdf.set_font("Arial", 'B', 9)
-            pdf.cell(55, 7, sanitize(label), border='B')
+            pdf.cell(55, 6, sanitize(label), border=0)
+            
+            # Zmienione na multi_cell aby obsługiwało wielolinijkowe adresy i automatycznie "łamało" tekst
             pdf.set_font("Arial", '', 10)
-            pdf.cell(0, 7, sanitize(val), border='B', ln=True)
+            pdf.set_xy(x_start + 55, y_start + 0.5)
+            pdf.multi_cell(135, 5, sanitize(val), border=0)
+            
+            # Obliczenie końca komórki (po złamaniu wierszy)
+            y_end = pdf.get_y() + 1.5
+            pdf.line(10, y_end, 200, y_end)
+            pdf.set_xy(10, y_end + 1.5)
         pdf.ln(4)
 
     draw_pro_section("PARTIES & ASSETS", [
@@ -133,7 +144,8 @@ def generate_pro_pdf(dane):
         ("CARGO TYPE:", "Exhibition Structures / AV Equipment"),
         ("GROSS WEIGHT:", f"{dane['waga']} kg"),
         ("TOTAL NET RATE:", f"{dane['stawka']} {dane['waluta']}"),
-        ("OVERLAY PER DAY:", f"{dane['postoj']} {dane['waluta']}" if float(dane['postoj']) > 0 else "0.00")
+        ("OVERLAY PER DAY:", f"{dane['postoj']} {dane['waluta']}" if float(dane['postoj']) > 0 else "0.00"),
+        ("PAYMENT TERMS / PLATNOSC:", "45 days after invoice receipt / 45 dni po otrzymaniu faktury")
     ])
 
     pdf.set_font("Arial", 'B', 11)
@@ -225,8 +237,51 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
         st.error("Wybierz przewoźnika z listy!")
     else:
         with st.spinner("Zabezpieczanie i generowanie dokumentu..."):
-            final_zal = z_man if z_sel == "INNE (wpisz ręcznie)" else z_sel
-            final_roz = r_man if r_sel == "INNE (wpisz ręcznie)" else r_sel
+            final_zal_db = z_man if z_sel == "INNE (wpisz ręcznie)" else z_sel
+            final_roz_db = r_man if r_sel == "INNE (wpisz ręcznie)" else r_sel
+            
+            # Funkcja zamieniająca krótką nazwę z listy na pełny adres z bazy (tylko na potrzeby wydruku w PDF)
+            def build_full_address(place_name, manual_addr, df):
+                if place_name == "INNE (wpisz ręcznie)":
+                    return manual_addr
+                if df is None or df.empty:
+                    return place_name
+                    
+                row = df[df['Nazwa do listy'] == place_name]
+                if not row.empty:
+                    r = row.iloc[0]
+                    firma = str(r.get('Nazwa pełna / Firma', '')).strip()
+                    ulica = str(r.get('Ulica i numer', '')).strip()
+                    kod = str(r.get('Kod pocztowy', '')).strip()
+                    miasto = str(r.get('Miasto', '')).strip()
+                    kraj = str(r.get('Kraj', '')).strip()
+                    kontakt = str(r.get('Osoba / Tel', '')).strip()
+                    
+                    lines = []
+                    if firma and firma != 'nan' and firma.lower() != 'none': 
+                        lines.append(firma)
+                    elif place_name and place_name != 'nan':
+                        lines.append(place_name)
+                        
+                    adres_parts = []
+                    if ulica and ulica != 'nan' and ulica.lower() != 'none': adres_parts.append(ulica)
+                    miasto_part = f"{kod if kod != 'nan' and kod.lower() != 'none' else ''} {miasto if miasto != 'nan' and miasto.lower() != 'none' else ''}".strip()
+                    if miasto_part: adres_parts.append(miasto_part)
+                    if kraj and kraj != 'nan' and kraj.lower() != 'none': adres_parts.append(kraj)
+                    
+                    adres = ", ".join(adres_parts)
+                    if adres: lines.append(adres)
+                    
+                    if kontakt and kontakt != 'nan' and kontakt.lower() != 'none':
+                        lines.append(f"Kontakt: {kontakt}")
+                        
+                    return "\n".join(lines)
+                return place_name
+
+            # Generujemy pełne wielolinijkowe adresy
+            full_zal_pdf = build_full_address(z_sel, z_man, df_miejsca)
+            full_roz_pdf = build_full_address(r_sel, r_man, df_miejsca)
+            
             rok, d_kod = datetime.now().strftime('%y'), datetime.now().strftime('%m%d')
             idx = get_next_daily_number(datetime.now().strftime("%Y-%m-%d"))
             pref = str(projekt)[:3].upper() if projekt != "Brak" else "TRG"
@@ -235,8 +290,8 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
             paczka_pdf = {
                 "typ_zlecenia": typ_zlecenia, "nr": nr_zlecenia, "przewoznik": wybrany_przewoznik,
                 "stawka": stawka_final, "waluta": waluta, "postoj": postoj,
-                "zaladunek": final_zal, "data_zal": str(data_zal),
-                "rozladunek": final_roz, "data_roz": str(data_roz),
+                "zaladunek": full_zal_pdf, "data_zal": str(data_zal),
+                "rozladunek": full_roz_pdf, "data_roz": str(data_roz),
                 "data_emp_in": str(data_emp_in), "data_emp_out": str(data_emp_out),
                 "waga": waga, "auto": c_auto, "uwagi": instrukcje
             }
@@ -246,7 +301,7 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
             
             wiersz_db = [
                 datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "LOGISTYKA CARGO", wybrany_przewoznik,
-                final_zal, final_roz, str(data_zal), str(data_roz), "Zabudowa Targowa PRO",
+                final_zal_db, final_roz_db, str(data_zal), str(data_roz), "Zabudowa Targowa PRO",
                 "", "", "", "", pelne_uwagi, "", projekt, "TARGI", f"{stawka_final} {waluta}"
             ]
             
