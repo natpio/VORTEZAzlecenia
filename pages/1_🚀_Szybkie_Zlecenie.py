@@ -8,29 +8,27 @@ import hashlib
 from core import fetch_data, append_data, get_next_daily_number
 from pricing import get_all_carrier_rates, TRANSIT_DAYS
 
-# --- NOWOCZESNY GENERATOR PDF PRO (NAPRAWIONY) ---
+# --- NOWOCZESNY GENERATOR PDF PRO (BEZPIECZNY DLA FPDF) ---
 class PRO_TransportOrder(FPDF):
     def __init__(self, watermark_text="SQM"):
         super().__init__()
         self.watermark_text = watermark_text
 
     def add_watermark(self):
-        """Implementacja zamglonego znaku wodnego z poprawną rotacją."""
-        self.set_font("Arial", 'B', 40)
-        # Ustawiamy bardzo jasny kolor (zamglony efekt)
+        """Bezpieczna implementacja zamglonego znaku wodnego dla klasycznego fpdf."""
+        self.set_font("Arial", 'B', 45)
         self.set_text_color(240, 240, 240) 
         
-        # Generowanie siatki znaków wodnych na całej stronie
-        for i in range(0, 210, 50):  # Szerokość A4
-            for j in range(0, 297, 50):  # Wysokość A4
-                # Wykonujemy rotację tekstu względem punktu (i, j)
-                with self.rotation(angle=45, x=i, y=j):
-                    self.text(i, j, self.watermark_text)
+        # Generowanie siatki poziomej na przemian (efekt cegiełki)
+        for j in range(30, 297, 45):
+            przesuniecie = 35 if (j // 45) % 2 == 0 else 0
+            for i in range(-20, 210, 70):
+                self.text(i + przesuniecie, j, self.watermark_text)
         
         self.set_text_color(0, 0, 0) # Powrót do czarnego dla reszty dokumentu
 
     def header(self):
-        # Logo SQM z pliku logosqm.png (używamy pliku z głównego folderu)
+        # Logo SQM z pliku
         try:
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 55)
