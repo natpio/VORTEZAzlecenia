@@ -42,7 +42,6 @@ class PRO_TransportOrder(FPDF):
 
     def header(self):
         try:
-            # Lekko zmniejszone logo, aby zapewnić oddech
             if os.path.exists("logosqm.png"):
                 self.image("logosqm.png", 10, 8, 50)
             elif os.path.exists("logosqm.jpg"):
@@ -50,7 +49,6 @@ class PRO_TransportOrder(FPDF):
         except:
             pass
         
-        # Bezpieczna szerokość dla nagłówka
         self.set_font("Arial", 'B', 18)
         self.set_text_color(*self.dark_text)
         self.set_xy(65, 12)
@@ -92,7 +90,7 @@ def generate_pro_pdf(dane):
     pdf.add_page()
     pdf.add_watermark()
 
-    # KOD QR (x=175, zajmuje 25mm -> kończy się na x=200)
+    # KOD QR 
     token_base = f"{dane['nr']}-{dane['przewoznik']}-{dane['stawka']}"
     secure_hash = hashlib.md5(token_base.encode()).hexdigest()[:12].upper()
     qr_content = f"SQM-VERIFY: {dane['nr']}\nVALID-HASH: {secure_hash}\nSYSTEM: VORTEX 4.0"
@@ -186,51 +184,50 @@ def generate_pro_pdf(dane):
     
     start_y = pdf.get_y()
     
-    pdf.set_font("Arial", 'B', 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(50, 6, pdf_sanitize("CARGO TYPE / RODZAJ TOWARU:"))
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, pdf_sanitize("Exhibition Structures / AV Equipment"), ln=True)
-    
-    pdf.set_font("Arial", 'B', 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(50, 6, pdf_sanitize("GROSS WEIGHT / WAGA BRUTTO:"))
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, pdf_sanitize(f"{dane['waga']} kg"), ln=True)
-    
-    pdf.set_font("Arial", 'B', 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(50, 6, pdf_sanitize("PAYMENT TERMS / PŁATNOŚĆ:"))
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_text_color(40, 40, 40)
-    pdf.cell(50, 6, pdf_sanitize("45 days after invoice"), ln=True)
-
-    # DUŻY NIEBIESKI BLOK Z CENĄ
-    pdf.set_xy(115, start_y)
+    # DUŻY NIEBIESKI BLOK Z CENĄ (Przesunięty na bezpieczną pozycję x=120, szerokość 80)
+    pdf.set_xy(120, start_y)
     pdf.set_fill_color(25, 118, 210)
-    pdf.rect(115, start_y, 85, 25, 'F')
+    pdf.rect(120, start_y, 80, 25, 'F')
     
-    pdf.set_xy(120, start_y + 3)
+    pdf.set_xy(125, start_y + 3)
     pdf.set_font("Arial", 'B', 8)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(75, 5, pdf_sanitize("TOTAL NET RATE / KWOTA NETTO"), ln=True)
+    pdf.cell(70, 5, pdf_sanitize("TOTAL NET RATE / KWOTA NETTO"), ln=True)
     
-    pdf.set_xy(120, start_y + 10)
+    pdf.set_xy(125, start_y + 10)
     pdf.set_font("Arial", 'B', 20)
-    pdf.cell(75, 10, pdf_sanitize(f"{dane['stawka']} {dane['waluta']}"), ln=True)
+    pdf.cell(70, 10, pdf_sanitize(f"{dane['stawka']} {dane['waluta']}"), ln=True)
 
     if float(dane['postoj']) > 0:
-        pdf.set_xy(115, start_y + 26)
+        pdf.set_xy(120, start_y + 26)
         pdf.set_fill_color(240, 240, 240)
-        pdf.rect(115, start_y + 26, 85, 8, 'F')
-        pdf.set_xy(120, start_y + 27)
+        pdf.rect(120, start_y + 26, 80, 8, 'F')
+        pdf.set_xy(125, start_y + 27)
         pdf.set_font("Arial", 'B', 8)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(35, 5, pdf_sanitize("OVERLAY / POSTÓJ:"))
+        pdf.cell(30, 5, pdf_sanitize("OVERLAY / POSTÓJ:"))
         pdf.set_text_color(40, 40, 40)
         pdf.cell(40, 5, pdf_sanitize(f"{dane['postoj']} {dane['waluta']} / day"), align='R')
+
+    # LEWA STRONA (Detale ładunku, chronione multi_cell)
+    pdf.set_xy(10, start_y)
+    
+    def draw_short_row(label, val):
+        y_curr = pdf.get_y()
+        pdf.set_font("Arial", 'B', 8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(55, 5, pdf_sanitize(label), border=0)
+        
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_text_color(40, 40, 40)
+        pdf.set_xy(65, y_curr)
+        # Ograniczenie szerokości wartości do 50mm - wymusi złamanie linii
+        pdf.multi_cell(50, 5, pdf_sanitize(val), border=0) 
+        pdf.set_xy(10, pdf.get_y() + 1)
+        
+    draw_short_row("CARGO TYPE / RODZAJ TOWARU:", "Exhibition Structures / AV Equipment")
+    draw_short_row("GROSS WEIGHT / WAGA BRUTTO:", f"{dane['waga']} kg")
+    draw_short_row("PAYMENT TERMS / PŁATNOŚĆ:", "45 days after invoice")
 
     pdf.set_xy(10, max(pdf.get_y(), start_y + 35) + 5)
 
