@@ -122,46 +122,74 @@ def generate_pro_pdf_cmr(dane):
 st.markdown("<h2 style='color: #38bdf8;'>📄 TERMINAL CMR (EXCEL TO PDF)</h2>", unsafe_allow_html=True)
 
 if not os.path.exists("cmr_template.xlsx"):
-    st.error("Wgraj plik cmr_template.xlsx do folderu aplikacji!")
+    st.error("Wgraj plik cmr_template.xlsx do folderu aplikacji na GitHubie!")
     st.stop()
 
 with st.spinner("Ładowanie zleceń..."):
     df = fetch_data("Zlecenia")
 
 if not df.empty:
-    lista_nr = df[df['Dział'] == 'LOGISTYKA CARGO']['Numer zlecenia'].astype(str).tolist()
-    wybor = st.selectbox("Wybierz zlecenie do CMR:", ["Wybierz..."] + lista_nr)
-
-    if wybor != "Wybierz...":
-        r = df[df['Numer zlecenia'].astype(str) == wybor].iloc[0]
+    # BEZPIECZNE SZUKANIE KOLUMNY DZIAŁ
+    if 'Dział' in df.columns:
+        df_cargo = df[df['Dział'] == 'LOGISTYKA CARGO']
+    elif len(df.columns) > 2:
+        col_dzial = df.columns[2]
+        df_cargo = df[df[col_dzial] == 'LOGISTYKA CARGO']
+    else:
+        df_cargo = df
         
-        # Przygotowanie danych
-        uwagi_raw = str(r.get('Uwagi / Instrukcje', ''))
-        dane_doc = {
-            "1_Nadawca": "SQM Prosta Spółka Akcyjna\nul. Poznańska 165\n62-052 Komorniki, PL",
-            "2_Odbiorca": str(r.get('Miejsce Rozladunku', '')),
-            "3_Miejsce_Przeznaczenia": str(r.get('Miejsce Rozladunku', '')),
-            "4_Miejsce_Zaladunku": f"{r.get('Miejsce Zaladunku', '')} / {r.get('Data Zaladunku', '')}",
-            "5_Zalaczone_Dokumenty": f"Zlecenie {wybor}",
-            "16_Przewoznik": str(r.get('Zleceniobiorca', '')),
-            "17_Pojazd": uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "TBA",
-            "6_Towar": "Konstrukcje Targowe / Sprzęt AV",
-            "11_Waga": "Zgodnie ze specyfikacją",
-            "13_Instrukcje": uwagi_raw,
-            "21_Miejsce": "Komorniki",
-            "21_Data": datetime.now().strftime('%d.%m.%Y'),
-            "Ref_Zlecenia": wybor
-        }
+    if not df_cargo.empty and 'Numer zlecenia' in df_cargo.columns:
+        lista_nr = df_cargo['Numer zlecenia'].astype(str).tolist()
+    else:
+        lista_nr = []
 
-        col_ex, col_pdf = st.columns(2)
-        
-        with col_ex:
-            if st.button("📊 PRZYGOTUJ EXCEL (.xlsx)", use_container_width=True):
-                ex_file = fill_excel_and_get_bytes(dane_doc)
-                st.download_button("📥 POBIERZ WYPEŁNIONY EXCEL", data=ex_file, file_name=f"CMR_{wybor}.xlsx")
+    if lista_nr:
+        wybor = st.selectbox("Wybierz zlecenie do CMR:", ["Wybierz..."] + lista_nr)
 
-        with col_pdf:
-            if st.button("⚡ GENERUJ PDF PRO", type="primary", use_container_width=True):
-                with st.spinner("Przetwarzanie grafiki..."):
-                    pdf_file = generate_pro_pdf_cmr(dane_doc)
-                    st.download_button("📥 POBIERZ CMR PDF (4 STRONY)", data=pdf_file, file_name=f"CMR_{wybor}.pdf")
+        if wybor != "Wybierz...":
+            r = df_cargo[df_cargo['Numer zlecenia'].astype(str) == wybor].iloc[0]
+            
+            # Bezpieczne pobieranie uwag z radzeniem sobie ze zmienną nazwą kolumny
+            uwagi_col = 'Uwagi / Instrukcje' if 'Uwagi / Instrukcje' in df.columns else (df.columns[13] if len(df.columns) > 13 else 'Brak')
+            uwagi_raw = str(r.get(uwagi_col, ''))
+            
+            # Przygotowanie danych
+            dane_doc = {
+                "1_Nadawca": "SQM Prosta Spółka Akcyjna\nul. Poznańska 165\n62-052 Komorniki, PL",
+                "2_Odbiorca": str(r.get('Miejsce Rozladunku', '')),
+                "3_Miejsce_Przeznaczenia": str(r.get('Miejsce Rozladunku', '')),
+                "4_Miejsce_Zaladunku": f"{r.get('Miejsce Zaladunku', '')} / {r.get('Data Zaladunku', '')}",
+                "5_Zalaczone_Dokumenty": f"Zlecenie {wybor}",
+                "16_Przewoznik": str(r.get('Zleceniobiorca', '')),
+                "17_Pojazd": uwagi_raw.split('AUTO: ')[-1].split(' ||')[0] if 'AUTO: ' in uwagi_raw else "TBA",
+                "6_Towar": "Konstrukcje Targowe / Sprzęt AV",
+                "11_Waga": "Zgodnie ze specyfikacją",
+                "13_Instrukcje": uwagi_raw,
+                "21_Miejsce": "Komorniki",
+                "21_Data": datetime.now().strftime('%d.%m.%Y'),
+                "Ref_Zlecenia": wybor
+            }
+
+            col_ex, col_pdf = st.columns(2)
+            
+            with col_ex:
+                if st.button("📊 PRZYGOTUJ EXCEL (.xlsx)", use_container_width=True):
+                    with st.spinner("Wypełnianie szablonu..."):
+                        try:
+                            ex_file = fill_excel_and_get_bytes(dane_doc)
+                            st.download_button("📥 POBIERZ WYPEŁNIONY EXCEL", data=ex_file, file_name=f"CMR_{wybor.replace('/', '_')}.xlsx")
+                        except Exception as e:
+                            st.error(f"Błąd excela: {e}")
+
+            with col_pdf:
+                if st.button("⚡ GENERUJ PDF PRO", type="primary", use_container_width=True):
+                    with st.spinner("Przetwarzanie dokumentu (WeasyPrint)..."):
+                        try:
+                            pdf_file = generate_pro_pdf_cmr(dane_doc)
+                            st.download_button("📥 POBIERZ CMR PDF (4 STRONY)", data=pdf_file, file_name=f"CMR_{wybor.replace('/', '_')}.pdf")
+                        except Exception as e:
+                            st.error(f"Błąd PDF: {e}")
+    else:
+        st.warning("Nie znaleziono zleceń w bazie dla podanego działu.")
+else:
+    st.error("Baza zleceń jest pusta.")
