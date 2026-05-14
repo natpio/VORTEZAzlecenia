@@ -356,7 +356,7 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
                 
                 # FALLBACK DLA DOMYŚLNEGO MAGAZYNU SQM
                 if place_name == "Magazyn SQM Komorniki":
-                    return "SQM Prosta Spółka Akcyjna\nMagazyn Centralny Komorniki\n62-052 Komorniki, Polska\nTel: +48 61 8 950 950"
+                    return "SQM Prosta Spółka Akcyjna\nMagazyn Centralny Komorniki\n62-052 Komorniki, Polska"
                     
                 return place_name
 
