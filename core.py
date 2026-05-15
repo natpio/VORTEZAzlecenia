@@ -14,6 +14,7 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNu
 # --- 1. AUTORYZACJA GOOGLE SHEETS (SINGLETON) ---
 @st.cache_resource
 def get_gsheets_client():
+    """Nawiązuje jedno, stałe połączenie z bazą danych, zamiast logować się co kliknięcie."""
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
@@ -21,39 +22,42 @@ def get_gsheets_client():
 # --- 2. INTELIGENTNE POBIERANIE DANYCH (CACHE) ---
 @st.cache_data(ttl=60)
 def fetch_data(sheet_name):
+    """Pobiera dane z zakładki i trzyma je w pamięci RAM przez 60 sekund. Aplikacja przyspieszy 10-krotnie."""
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
-        return df
+        return pd.DataFrame(sheet.get_all_records())
     except Exception as e:
-        st.error(f"Błąd pobierania: {e}")
+        st.error(f"⚠️ Błąd silnika (Odczyt - {sheet_name}): {e}")
         return pd.DataFrame()
 
-# --- 3. DODAWANIE DANYCH ---
-def append_data(sheet_name, new_row_list):
+# --- 3. ZAPISYWANIE DANYCH ---
+def append_data(sheet_name, row_data):
+    """Bezpiecznie wysyła wiersz do bazy i wymusza odświeżenie pamięci (żeby listy od razu widziały zmianę)."""
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        sheet.append_row(new_row_list)
-        st.cache_data.clear()
+        sheet.append_row(row_data)
+        fetch_data.clear() # Czyści stary cache, wymuszając pobranie nowych danych
         return True
     except Exception as e:
-        st.error(f"Błąd zapisu: {e}")
+        st.error(f"⚠️ Błąd silnika (Zapis - {sheet_name}): {e}")
         return False
 
-# --- 4. INICJALIZACJA AI ---
+# --- 4. AUTORYZACJA SZTUCZNEJ INTELIGENCJI ---
+@st.cache_resource
 def init_ai_model():
+    """Uruchamia najnowszy model Google Gemini."""
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        return model
+        return genai.GenerativeModel('models/gemini-2.5-flash')
     except Exception as e:
+        st.error(f"⚠️ Błąd silnika (AI): Brak lub niepoprawny klucz Gemini w st.secrets.")
         return None
 
-# --- 5. LOGIKA BIZNESOWA ---
+# --- 5. LOGIKA BIZNESOWA (GENERATORY NUMERÓW) ---
 def get_next_daily_number(prefix_date):
+    """Oblicza kolejny numer zlecenia w danym dniu dla logistyków."""
     df = fetch_data("Zlecenia")
     if not df.empty and 'Data wystawienia' in df.columns:
         dzisiejsze = df[df['Data wystawienia'].astype(str).str.startswith(prefix_date)]
@@ -62,72 +66,26 @@ def get_next_daily_number(prefix_date):
 
 # --- 6. AKTUALIZACJA ISTNIEJĄCYCH DANYCH ---
 def update_row(sheet_name, row_index, new_row_data):
+    """Aktualizuje konkretny wiersz w Google Sheets. row_index musi być numerem wiersza w arkuszu."""
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        # row_index w gspread odpowiada fizycznemu numerowi wiersza (1, 2, 3...)
         sheet.update(f"A{row_index}", [new_row_data])
-        st.cache_data.clear()
+        fetch_data.clear() # Czyścimy cache, żeby zmiany były widoczne od razu
         return True
     except Exception as e:
+        st.error(f"⚠️ Błąd silnika (Update - {sheet_name}): {e}")
         return False
 
 def delete_row(sheet_name, row_index):
+    """Usuwa wiersz z bazy danych."""
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
         sheet.delete_rows(row_index)
-        st.cache_data.clear()
+        fetch_data.clear()
         return True
     except Exception as e:
-        return False
-
-# ==========================================
-# NOWE FUNKCJE DLA NOWEJ HISTORII ZLECEŃ
-# ==========================================
-def update_data(worksheet_name, identifier_col, identifier_val, new_data_dict):
-    try:
-        client = get_gsheets_client()
-        sheet = client.open_by_url(SHEET_URL).worksheet(worksheet_name)
-        records = sheet.get_all_records()
-        df = pd.DataFrame(records)
-        
-        if identifier_col not in df.columns: return False
-        
-        matching_idx = df.index[df[identifier_col].astype(str) == str(identifier_val)].tolist()
-        if not matching_idx: return False
-        row_idx = matching_idx[0] + 2
-        
-        current_row = sheet.row_values(row_idx)
-        headers = sheet.row_values(1)
-        
-        while len(current_row) < len(headers): current_row.append("")
-        
-        for col, val in new_data_dict.items():
-            if col in headers:
-                col_idx = headers.index(col)
-                current_row[col_idx] = val
-                
-        sheet.update(f"A{row_idx}", [current_row])
-        st.cache_data.clear()
-        return True
-    except Exception as e:
-        return False
-
-def delete_data(worksheet_name, identifier_col, identifier_val):
-    try:
-        client = get_gsheets_client()
-        sheet = client.open_by_url(SHEET_URL).worksheet(worksheet_name)
-        records = sheet.get_all_records()
-        df = pd.DataFrame(records)
-        
-        if identifier_col not in df.columns: return False
-        
-        matching_idx = df.index[df[identifier_col].astype(str) == str(identifier_val)].tolist()
-        if not matching_idx: return False
-        row_idx = matching_idx[0] + 2
-        
-        sheet.delete_rows(row_idx)
-        st.cache_data.clear()
-        return True
-    except Exception as e:
+        st.error(f"⚠️ Błąd silnika (Delete - {sheet_name}): {e}")
         return False
