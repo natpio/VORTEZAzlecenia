@@ -5,6 +5,7 @@ import qrcode
 import tempfile
 import os
 import hashlib
+import difflib
 from core import fetch_data, append_data, get_next_daily_number
 from pricing import get_all_carrier_rates, TRANSIT_DAYS
 
@@ -193,12 +194,12 @@ def generate_pro_pdf(dane):
 
 # --- INTERFEJS UŻYTKOWNIKA ---
 st.set_page_config(page_title="Vorteza PRO", page_icon="🚀", layout="centered")
-st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🚀 Szybkie Zlecenie PRO v5.1</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🚀 Szybkie Zlecenie PRO v5.2</h2>", unsafe_allow_html=True)
 
 with st.spinner("Ładowanie telemetrii..."):
     df_projekty = fetch_data("Projekty")
     df_miejsca = fetch_data("Miejsca")
-    df_przewoznicy = fetch_data("Zleceniobiorcy") # Baza przewoźników
+    df_przewoznicy = fetch_data("Zleceniobiorcy")
 
 lista_eventow = df_projekty['Nazwa Eventu'].dropna().unique().tolist() if not df_projekty.empty else ["Brak"]
 lista_miejsc_baza = df_miejsca['Nazwa do listy'].tolist() if not df_miejsca.empty else []
@@ -236,16 +237,35 @@ with st.container(border=True):
         lista_cennikowa = list(slownik_stawek.keys()) if isinstance(slownik_stawek, dict) and slownik_stawek else ["Brak stawek"]
         nazwa_przewoznika = f1.selectbox("Wybierz partnera:", ["Wybierz..."] + lista_cennikowa)
         
-        # Automatyczne pobieranie detali z bazy Zleceniobiorcy
+        # --- INTELIGENTNE ŁĄCZENIE Z BAZĄ (FUZZY MATCHING) ---
         if nazwa_przewoznika != "Wybierz...":
-            row_p = df_przewoznicy[df_przewoznicy['Nazwa'].str.contains(nazwa_przewoznika, na=False, case=False)] if not df_przewoznicy.empty else []
-            if not row_p.empty:
-                r = row_p.iloc[0]
-                detale_przewoznika = f"{r.get('Nazwa pełna', nazwa_przewoznika)}\n{r.get('Adres', '')}\nNIP: {r.get('NIP', '')}"
-                st.info(f"✅ Dane z bazy:\n{detale_przewoznika}")
+            if not df_przewoznicy.empty and 'Skrócona Nazwa' in df_przewoznicy.columns:
+                lista_nazw_w_bazie = df_przewoznicy['Skrócona Nazwa'].dropna().astype(str).tolist()
+                
+                najlepsze_dopasowania = difflib.get_close_matches(nazwa_przewoznika, lista_nazw_w_bazie, n=1, cutoff=0.4)
+                
+                if najlepsze_dopasowania:
+                    dopasowana_nazwa = najlepsze_dopasowania[0]
+                    row_p = df_przewoznicy[df_przewoznicy['Skrócona Nazwa'] == dopasowana_nazwa]
+                    r = row_p.iloc[0]
+                    
+                    pelna = str(r.get('Pełna Nazwa', dopasowana_nazwa))
+                    ulica = str(r.get('Ulica i numer', ''))
+                    miasto = str(r.get('Kod pocztowy i Miasto', ''))
+                    kraj = str(r.get('Kraj', 'Polska'))
+                    nip = str(r.get('NIP', ''))
+                    
+                    detale_przewoznika = f"{pelna}\n{ulica}\n{miasto}, {kraj}\nNIP: {nip}".strip()
+                    
+                    if dopasowana_nazwa.lower() != nazwa_przewoznika.lower():
+                        st.info(f"🔗 Połączono stawkę **{nazwa_przewoznika}** z firmą w bazie: **{dopasowana_nazwa}**\n\nDane:\n{detale_przewoznika}")
+                    else:
+                        st.info(f"✅ Pełne dane z bazy:\n{detale_przewoznika}")
+                else:
+                    detale_przewoznika = nazwa_przewoznika
+                    st.warning(f"⚠️ Stawka '{nazwa_przewoznika}' jest w cenniku, ale nie znaleziono podobnej firmy w bazie 'Zleceniobiorcy'.")
             else:
-                detale_przewoznika = nazwa_przewoznika
-                st.warning("⚠️ Przewoźnik jest w cenniku, ale brak jego pełnych danych w bazie 'Zleceniobiorcy'.")
+                 detale_przewoznika = nazwa_przewoznika
 
         dane_wybranego = slownik_stawek.get(nazwa_przewoznika, {"cost": 0.0, "postoj": 0.0}) if isinstance(slownik_stawek, dict) else {}
         stawka_final = f2.number_input("Cena Total:", value=float(dane_wybranego.get("cost", 0.0)))
