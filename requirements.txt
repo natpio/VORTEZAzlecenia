@@ -6,7 +6,7 @@ gspread
 google-auth
 plotly
 Pillow
-google-genai
+google-generativeai
 openpyxl
 weasyprint
 pandas
