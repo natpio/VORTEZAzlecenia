@@ -1,105 +1,137 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+import gspread
+from google.oauth2.service_account import Credentials
+import google.generativeai as genai
 
-# Stały adres URL bazy danych - upewnij się, że jest identyczny z tym w Secrets
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit#gid=0"
+# ==========================================
+# ⚙️ VORTEX CORE ENGINE 
+# ==========================================
 
-def get_connection():
-    """Tworzy połączenie korzystając z [connections.gsheets] w st.secrets."""
-    return st.connection("gsheets", type=GSheetsConnection)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
+# --- 1. AUTORYZACJA GOOGLE SHEETS ---
+@st.cache_resource
+def get_gsheets_client():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    return gspread.authorize(creds)
+
+# --- 2. POBIERANIE DANYCH ---
 @st.cache_data(ttl=60)
-def fetch_data(worksheet_name):
-    """Pobiera dane z określonego arkusza."""
+def fetch_data(sheet_name):
     try:
-        conn = get_connection()
-        # Jawne przekazanie adresu URL przy zachowaniu autoryzacji z Secrets
-        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name)
-        return df.dropna(how="all") 
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+        return df.dropna(how="all")
     except Exception as e:
-        st.error(f"Błąd podczas pobierania danych z arkusza '{worksheet_name}': {e}")
+        st.error(f"Błąd pobierania danych: {e}")
         return pd.DataFrame()
 
-def append_data(worksheet_name, new_row_list):
-    """Dodaje nowy wiersz na końcu arkusza."""
+# --- 3. DODAWANIE DANYCH ---
+def append_data(sheet_name, new_row_list):
     try:
-        conn = get_connection()
-        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
-        
-        if len(new_row_list) != len(df.columns):
-            if len(new_row_list) < len(df.columns):
-                new_row_list.extend([""] * (len(df.columns) - len(new_row_list)))
-            else:
-                new_row_list = new_row_list[:len(df.columns)]
-
-        new_row_df = pd.DataFrame([new_row_list], columns=df.columns)
-        updated_df = pd.concat([df, new_row_df], ignore_index=True)
-        
-        conn.update(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, data=updated_df)
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        sheet.append_row(new_row_list)
         st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Błąd podczas dodawania danych: {e}")
+        st.error(f"Błąd zapisu: {e}")
         return False
 
-def get_next_daily_number(date_str):
-    """Oblicza kolejny numer zlecenia dla danego dnia."""
+# --- 4. INICJALIZACJA AI (GEMINI) ---
+def init_ai_model():
     try:
-        df = fetch_data("Zlecenia")
-        if df.empty: return 1
-        kolumna_daty = 'Data utworzenia' if 'Data utworzenia' in df.columns else df.columns[0]
-        dzisiejsze = df[df[kolumna_daty].astype(str).str.startswith(date_str)]
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        return model
+    except Exception as e:
+        st.error("Nie znaleziono klucza API Gemini lub błąd inicjalizacji.")
+        return None
+
+# --- 5. GENERATOR NUMERÓW ---
+def get_next_daily_number(prefix_date):
+    df = fetch_data("Zlecenia")
+    if not df.empty:
+        kolumna = 'Data utworzenia' if 'Data utworzenia' in df.columns else df.columns[0]
+        dzisiejsze = df[df[kolumna].astype(str).str.startswith(prefix_date)]
         return len(dzisiejsze) + 1
-    except:
-        return 1
+    return 1
 
-# --- FUNKCJE EDYCJI I USUWANIA (Aliasy dla pełnej kompatybilności) ---
-
-def update_row(worksheet_name, identifier_col, identifier_val, new_data_dict):
-    """Aktualizuje wiersz w arkuszu na podstawie ID."""
+# --- 6. ORYGINALNE FUNKCJE AKTUALIZACJI (np. dla Bazy Przewoźników) ---
+def update_row(sheet_name, row_index, new_row_data):
     try:
-        conn = get_connection()
-        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
-        
-        if identifier_col not in df.columns:
-            st.error(f"Kolumna {identifier_col} nie istnieje.")
-            return False
-            
-        mask = df[identifier_col].astype(str) == str(identifier_val)
-        if not mask.any():
-            st.error(f"Nie znaleziono rekordu: {identifier_val}")
-            return False
-            
-        for col, val in new_data_dict.items():
-            if col in df.columns:
-                df.loc[mask, col] = val
-        
-        conn.update(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, data=df)
-        st.cache_data.clear()
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        sheet.update(f"A{row_index}", [new_row_data])
+        st.cache_data.clear() 
         return True
     except Exception as e:
         st.error(f"Błąd aktualizacji: {e}")
         return False
 
-def delete_row(worksheet_name, identifier_col, identifier_val):
-    """Usuwa wiersz z arkusza na podstawie ID."""
+def delete_row(sheet_name, row_index):
     try:
-        conn = get_connection()
-        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
-        
-        if identifier_col not in df.columns:
-            return False
-            
-        df_updated = df[df[identifier_col].astype(str) != str(identifier_val)]
-        
-        conn.update(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, data=df_updated)
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
+        sheet.delete_rows(row_index)
         st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Błąd usuwania: {e}")
         return False
 
-# Definiujemy aliasy, aby oba typy importów w Twoich plikach działały
-update_data = update_row
-delete_data = delete_row
+# ==========================================
+# NOWE FUNKCJE DLA NOWEJ HISTORII ZLECEŃ
+# ==========================================
+def update_data(worksheet_name, identifier_col, identifier_val, new_data_dict):
+    try:
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(worksheet_name)
+        records = sheet.get_all_records()
+        df = pd.DataFrame(records)
+        
+        if identifier_col not in df.columns: return False
+        
+        # Szukamy indeksu (+2 ponieważ gspread liczy od 1, a wiersz 1 to nagłówki)
+        matching_idx = df.index[df[identifier_col].astype(str) == str(identifier_val)].tolist()
+        if not matching_idx: return False
+        row_idx = matching_idx[0] + 2
+        
+        current_row = sheet.row_values(row_idx)
+        headers = sheet.row_values(1)
+        
+        while len(current_row) < len(headers): current_row.append("")
+        
+        for col, val in new_data_dict.items():
+            if col in headers:
+                col_idx = headers.index(col)
+                current_row[col_idx] = val
+                
+        sheet.update(f"A{row_idx}", [current_row])
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        return False
+
+def delete_data(worksheet_name, identifier_col, identifier_val):
+    try:
+        client = get_gsheets_client()
+        sheet = client.open_by_url(SHEET_URL).worksheet(worksheet_name)
+        records = sheet.get_all_records()
+        df = pd.DataFrame(records)
+        
+        if identifier_col not in df.columns: return False
+        
+        matching_idx = df.index[df[identifier_col].astype(str) == str(identifier_val)].tolist()
+        if not matching_idx: return False
+        row_idx = matching_idx[0] + 2
+        
+        sheet.delete_rows(row_idx)
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        return False
