@@ -10,3 +10,4 @@ google-generativeai
 openpyxl
 weasyprint
 pandas
+st-gsheets-connection
