@@ -26,33 +26,33 @@ def fetch_data(sheet_name):
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        return pd.DataFrame(sheet.get_all_records())
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+        return df.dropna(how="all")
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Odczyt - {sheet_name}): {e}")
+        st.error(f"Błąd pobierania danych: {e}")
         return pd.DataFrame()
 
-# --- 3. ZAPISYWANIE DANYCH ---
-def append_data(sheet_name, row_data):
-    """Bezpiecznie wysyła wiersz do bazy i wymusza odświeżenie pamięci (żeby listy od razu widziały zmianę)."""
+# --- 3. DODAWANIE DANYCH ---
+def append_data(sheet_name, new_row_list):
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        sheet.append_row(row_data)
-        fetch_data.clear() # Czyści stary cache, wymuszając pobranie nowych danych
+        sheet.append_row(new_row_list)
+        fetch_data.clear() 
         return True
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Zapis - {sheet_name}): {e}")
+        st.error(f"Błąd zapisu: {e}")
         return False
 
-# --- 4. AUTORYZACJA SZTUCZNEJ INTELIGENCJI ---
-@st.cache_resource
+# --- 4. INICJALIZACJA AI (GEMINI) ---
 def init_ai_model():
-    """Uruchamia najnowszy model Google Gemini."""
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        return genai.GenerativeModel('models/gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        return model
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (AI): Brak lub niepoprawny klucz Gemini w st.secrets.")
+        st.error("Nie znaleziono klucza API Gemini lub błąd inicjalizacji. Upewnij się, że masz poprawny klucz Gemini w st.secrets.")
         return None
 
 # --- 5. LOGIKA BIZNESOWA (GENERATORY NUMERÓW) ---
@@ -79,7 +79,6 @@ def update_row(sheet_name, row_index, new_row_data):
         return False
 
 def delete_row(sheet_name, row_index):
-    """Usuwa wiersz z bazy danych."""
     try:
         client = get_gsheets_client()
         sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
@@ -87,5 +86,5 @@ def delete_row(sheet_name, row_index):
         fetch_data.clear()
         return True
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Delete - {sheet_name}): {e}")
+        st.error(f"Błąd usuwania: {e}")
         return False
