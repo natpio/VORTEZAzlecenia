@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# Stały adres URL bazy danych Google Sheets
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit#gid=0"
+# Używamy czystego linku bez parametrów gid, co ułatwia autoryzację kontem serwisowym
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
 
 def get_connection():
-    """Inicjalizuje i zwraca połączenie z Google Sheets."""
+    """Łączy się z arkuszem przy użyciu poświadczeń z Streamlit Secrets."""
     return st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=60)
@@ -14,21 +14,19 @@ def fetch_data(worksheet_name):
     """Pobiera dane z określonego arkusza."""
     try:
         conn = get_connection()
-        # Jawne wskazanie spreadsheet=SPREADSHEET_URL eliminuje błędy konfiguracji połączenia
+        # Wywołanie read z jawnym adresem URL wymusza użycie poświadczeń konta serwisowego
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name)
         return df.dropna(how="all") 
     except Exception as e:
-        st.error(f"Błąd podczas pobierania danych z arkusza '{worksheet_name}': {e}")
+        st.error(f"Błąd autoryzacji lub odczytu arkusza '{worksheet_name}': {e}")
         return pd.DataFrame()
 
 def append_data(worksheet_name, new_row_list):
     """Dodaje nowy wiersz na końcu arkusza."""
     try:
         conn = get_connection()
-        # Pobieramy najświeższe dane (ttl=0), aby zachować ciągłość wierszy
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
         
-        # Walidacja długości wiersza względem liczby kolumn
         if len(new_row_list) != len(df.columns):
             if len(new_row_list) < len(df.columns):
                 new_row_list.extend([""] * (len(df.columns) - len(new_row_list)))
@@ -42,40 +40,36 @@ def append_data(worksheet_name, new_row_list):
         st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Błąd podczas dodawania danych do arkusza: {e}")
+        st.error(f"Błąd podczas zapisu danych: {e}")
         return False
 
 def get_next_daily_number(date_str):
     """Oblicza kolejny numer zlecenia dla danego dnia."""
     try:
-        conn = get_connection()
-        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Zlecenia", ttl=0)
+        df = fetch_data("Zlecenia")
         if df.empty:
             return 1
-        
-        # Zakładamy, że data utworzenia jest w pierwszej kolumnie
         kolumna_daty = 'Data utworzenia' if 'Data utworzenia' in df.columns else df.columns[0]
         dzisiejsze = df[df[kolumna_daty].astype(str).str.startswith(date_str)]
         return len(dzisiejsze) + 1
     except:
         return 1
 
-def update_data(worksheet_name, identifier_col, identifier_val, new_data_dict):
-    """Aktualizuje istniejący wiersz na podstawie identyfikatora."""
+# --- FUNKCJE EDYCJI I USUWANIA (Zgodne z importami w Twoich plikach) ---
+
+def update_row(worksheet_name, identifier_col, identifier_val, new_data_dict):
+    """Aktualizuje wiersz w arkuszu na podstawie ID."""
     try:
         conn = get_connection()
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
         
         if identifier_col not in df.columns:
-            st.error(f"Kolumna '{identifier_col}' nie została znaleziona.")
             return False
             
         mask = df[identifier_col].astype(str) == str(identifier_val)
         if not mask.any():
-            st.error(f"Nie znaleziono rekordu o numerze: {identifier_val}")
             return False
             
-        # Mapowanie i aktualizacja pól w DataFrame
         for col, val in new_data_dict.items():
             if col in df.columns:
                 df.loc[mask, col] = val
@@ -84,25 +78,27 @@ def update_data(worksheet_name, identifier_col, identifier_val, new_data_dict):
         st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Błąd podczas aktualizacji rekordu: {e}")
+        st.error(f"Błąd aktualizacji: {e}")
         return False
 
-def delete_data(worksheet_name, identifier_col, identifier_val):
-    """Trwale usuwa wiersz z arkusza."""
+def delete_row(worksheet_name, identifier_col, identifier_val):
+    """Usuwa wiersz z arkusza na podstawie ID."""
     try:
         conn = get_connection()
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
         
         if identifier_col not in df.columns:
-            st.error(f"Kolumna '{identifier_col}' nie istnieje.")
             return False
             
-        # Filtrowanie - usunięcie rekordu o podanym ID
         df_updated = df[df[identifier_col].astype(str) != str(identifier_val)]
         
         conn.update(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, data=df_updated)
         st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Błąd podczas usuwania rekordu: {e}")
+        st.error(f"Błąd usuwania: {e}")
         return False
+
+# Aliasy, aby plik 4_Historia_Zlecen_Cargo.py również działał poprawnie
+update_data = update_row
+delete_data = delete_row
