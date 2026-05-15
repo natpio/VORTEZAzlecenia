@@ -1,91 +1,119 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-import google.generativeai as genai
+from streamlit_gsheets import GSheetsConnection
 
-# ==========================================
-# ⚙️ VORTEX CORE ENGINE v3.0
-# Serce systemu: Baza danych, Cache i AI
-# ==========================================
+def get_connection():
+    """Zwraca połączenie z Google Sheets."""
+    return st.connection("gsheets", type=GSheetsConnection)
 
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
-
-# --- 1. AUTORYZACJA GOOGLE SHEETS (SINGLETON) ---
-@st.cache_resource
-def get_gsheets_client():
-    """Nawiązuje jedno, stałe połączenie z bazą danych, zamiast logować się co kliknięcie."""
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    return gspread.authorize(creds)
-
-# --- 2. INTELIGENTNE POBIERANIE DANYCH (CACHE) ---
 @st.cache_data(ttl=60)
-def fetch_data(sheet_name):
-    """Pobiera dane z zakładki i trzyma je w pamięci RAM przez 60 sekund. Aplikacja przyspieszy 10-krotnie."""
+def fetch_data(worksheet_name):
+    """Pobiera dane z określonego arkusza (z użyciem pamięci podręcznej)."""
     try:
-        client = get_gsheets_client()
-        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        return pd.DataFrame(sheet.get_all_records())
+        conn = get_connection()
+        df = conn.read(worksheet=worksheet_name)
+        # Odrzucamy całkowicie puste wiersze, które Google Sheets czasami dodaje
+        return df.dropna(how="all") 
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Odczyt - {sheet_name}): {e}")
+        st.error(f"Błąd podczas pobierania danych z arkusza '{worksheet_name}': {e}")
         return pd.DataFrame()
 
-# --- 3. ZAPISYWANIE DANYCH ---
-def append_data(sheet_name, row_data):
-    """Bezpiecznie wysyła wiersz do bazy i wymusza odświeżenie pamięci (żeby listy od razu widziały zmianę)."""
+def append_data(worksheet_name, new_row_list):
+    """Dodaje nowy wiersz na końcu określonego arkusza."""
     try:
-        client = get_gsheets_client()
-        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        sheet.append_row(row_data)
-        fetch_data.clear() # Czyści stary cache, wymuszając pobranie nowych danych
+        conn = get_connection()
+        # Pobieramy obecne dane bez cache'u (ttl=0), żeby mieć najświeższą wersję i uniknąć nadpisania
+        df = conn.read(worksheet=worksheet_name, ttl=0).dropna(how="all")
+        
+        # Zabezpieczenie przed niezgodnością liczby kolumn
+        if len(new_row_list) != len(df.columns):
+            # Jeśli lista ma mniej elementów, dopelniamy ją pustymi stringami
+            if len(new_row_list) < len(df.columns):
+                new_row_list.extend([""] * (len(df.columns) - len(new_row_list)))
+            else:
+                new_row_list = new_row_list[:len(df.columns)]
+
+        # Tworzymy jednowierszowy DataFrame z nowymi danymi
+        new_row_df = pd.DataFrame([new_row_list], columns=df.columns)
+        
+        # Łączymy stary DataFrame z nowym wierszem
+        updated_df = pd.concat([df, new_row_df], ignore_index=True)
+        
+        # Wysyłamy do Google Sheets
+        conn.update(worksheet=worksheet_name, data=updated_df)
+        
+        # Czyścimy cache, aby aplikacja od razu widziała nowe dane we wszystkich modułach
+        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Zapis - {sheet_name}): {e}")
+        st.error(f"Błąd podczas dodawania danych do arkusza '{worksheet_name}': {e}")
         return False
 
-# --- 4. AUTORYZACJA SZTUCZNEJ INTELIGENCJI ---
-@st.cache_resource
-def init_ai_model():
-    """Uruchamia najnowszy model Google Gemini."""
+def get_next_daily_number(date_str):
+    """
+    Oblicza kolejny numer zlecenia w danym dniu (dla inkrementacji np. P01, P02).
+    """
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        return genai.GenerativeModel('models/gemini-2.5-flash')
+        df = fetch_data("Zlecenia")
+        if df.empty:
+            return 1
+            
+        # Szukamy kolumny przechowującej datę (zazwyczaj to pierwsza kolumna w logach)
+        kolumna_daty = 'Data utworzenia' if 'Data utworzenia' in df.columns else df.columns[0]
+
+        # Filtrujemy zlecenia utworzone dzisiejszego dnia
+        dzisiejsze_zlecenia = df[df[kolumna_daty].astype(str).str.startswith(date_str)]
+        return len(dzisiejsze_zlecenia) + 1
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (AI): Brak lub niepoprawny klucz Gemini w st.secrets.")
-        return None
+        st.warning(f"Błąd przy obliczaniu numeru zlecenia (fallback do 1): {e}")
+        return 1
 
-# --- 5. LOGIKA BIZNESOWA (GENERATORY NUMERÓW) ---
-def get_next_daily_number(prefix_date):
-    """Oblicza kolejny numer zlecenia w danym dniu dla logistyków."""
-    df = fetch_data("Zlecenia")
-    if not df.empty and 'Data wystawienia' in df.columns:
-        dzisiejsze = df[df['Data wystawienia'].astype(str).str.startswith(prefix_date)]
-        return len(dzisiejsze) + 1
-    return 1
-
-# --- 6. AKTUALIZACJA ISTNIEJĄCYCH DANYCH ---
-def update_row(sheet_name, row_index, new_row_data):
-    """Aktualizuje konkretny wiersz w Google Sheets. row_index musi być numerem wiersza w arkuszu."""
+def update_data(worksheet_name, identifier_col, identifier_val, new_data_dict):
+    """Aktualizuje wiersz w arkuszu na podstawie unikalnego identyfikatora."""
     try:
-        client = get_gsheets_client()
-        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        # row_index w gspread odpowiada fizycznemu numerowi wiersza (1, 2, 3...)
-        sheet.update(f"A{row_index}", [new_row_data])
-        fetch_data.clear() # Czyścimy cache, żeby zmiany były widoczne od razu
+        conn = get_connection()
+        df = conn.read(worksheet=worksheet_name, ttl=0).dropna(how="all")
+        
+        if identifier_col not in df.columns:
+            st.error(f"Kolumna '{identifier_col}' nie istnieje w arkuszu '{worksheet_name}'")
+            return False
+            
+        # Znalezienie wiersza do aktualizacji
+        mask = df[identifier_col].astype(str) == str(identifier_val)
+        if not mask.any():
+            st.error(f"Nie znaleziono rekordu o ID: {identifier_val}")
+            return False
+            
+        # Aktualizacja wartości w DataFrame na podstawie słownika zmian
+        for col, val in new_data_dict.items():
+            if col in df.columns:
+                df.loc[mask, col] = val
+        
+        # Zapisanie całego DataFrame do arkusza
+        conn.update(worksheet=worksheet_name, data=df)
+        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Update - {sheet_name}): {e}")
+        st.error(f"Błąd podczas aktualizacji rekordu: {e}")
         return False
 
-def delete_row(sheet_name, row_index):
-    """Usuwa wiersz z bazy danych."""
+def delete_data(worksheet_name, identifier_col, identifier_val):
+    """Usuwa wiersz z arkusza na podstawie unikalnego identyfikatora."""
     try:
-        client = get_gsheets_client()
-        sheet = client.open_by_url(SHEET_URL).worksheet(sheet_name)
-        sheet.delete_rows(row_index)
-        fetch_data.clear()
+        conn = get_connection()
+        df = conn.read(worksheet=worksheet_name, ttl=0).dropna(how="all")
+        
+        if identifier_col not in df.columns:
+            st.error(f"Kolumna '{identifier_col}' nie istnieje.")
+            return False
+            
+        # Filtrowanie - zostawiamy wszystko OPRÓCZ usuwanego rekordu
+        df_updated = df[df[identifier_col].astype(str) != str(identifier_val)]
+        
+        # Nadpisanie arkusza bez tego wiersza
+        conn.update(worksheet=worksheet_name, data=df_updated)
+        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"⚠️ Błąd silnika (Delete - {sheet_name}): {e}")
+        st.error(f"Błąd podczas usuwania rekordu: {e}")
         return False
