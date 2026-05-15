@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# Używamy czystego linku bez parametrów gid, co ułatwia autoryzację kontem serwisowym
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit"
+# Stały adres URL bazy danych - upewnij się, że jest identyczny z tym w Secrets
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1R7Iajr-AFFYwDFmeZCF6pasitNuY75Z4ArTpm89Xzhc/edit#gid=0"
 
 def get_connection():
-    """Łączy się z arkuszem przy użyciu poświadczeń z Streamlit Secrets."""
+    """Tworzy połączenie korzystając z [connections.gsheets] w st.secrets."""
     return st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=60)
@@ -14,11 +14,11 @@ def fetch_data(worksheet_name):
     """Pobiera dane z określonego arkusza."""
     try:
         conn = get_connection()
-        # Wywołanie read z jawnym adresem URL wymusza użycie poświadczeń konta serwisowego
+        # Jawne przekazanie adresu URL przy zachowaniu autoryzacji z Secrets
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name)
         return df.dropna(how="all") 
     except Exception as e:
-        st.error(f"Błąd autoryzacji lub odczytu arkusza '{worksheet_name}': {e}")
+        st.error(f"Błąd podczas pobierania danych z arkusza '{worksheet_name}': {e}")
         return pd.DataFrame()
 
 def append_data(worksheet_name, new_row_list):
@@ -40,22 +40,21 @@ def append_data(worksheet_name, new_row_list):
         st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Błąd podczas zapisu danych: {e}")
+        st.error(f"Błąd podczas dodawania danych: {e}")
         return False
 
 def get_next_daily_number(date_str):
     """Oblicza kolejny numer zlecenia dla danego dnia."""
     try:
         df = fetch_data("Zlecenia")
-        if df.empty:
-            return 1
+        if df.empty: return 1
         kolumna_daty = 'Data utworzenia' if 'Data utworzenia' in df.columns else df.columns[0]
         dzisiejsze = df[df[kolumna_daty].astype(str).str.startswith(date_str)]
         return len(dzisiejsze) + 1
     except:
         return 1
 
-# --- FUNKCJE EDYCJI I USUWANIA (Zgodne z importami w Twoich plikach) ---
+# --- FUNKCJE EDYCJI I USUWANIA (Aliasy dla pełnej kompatybilności) ---
 
 def update_row(worksheet_name, identifier_col, identifier_val, new_data_dict):
     """Aktualizuje wiersz w arkuszu na podstawie ID."""
@@ -64,10 +63,12 @@ def update_row(worksheet_name, identifier_col, identifier_val, new_data_dict):
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=worksheet_name, ttl=0).dropna(how="all")
         
         if identifier_col not in df.columns:
+            st.error(f"Kolumna {identifier_col} nie istnieje.")
             return False
             
         mask = df[identifier_col].astype(str) == str(identifier_val)
         if not mask.any():
+            st.error(f"Nie znaleziono rekordu: {identifier_val}")
             return False
             
         for col, val in new_data_dict.items():
@@ -99,6 +100,6 @@ def delete_row(worksheet_name, identifier_col, identifier_val):
         st.error(f"Błąd usuwania: {e}")
         return False
 
-# Aliasy, aby plik 4_Historia_Zlecen_Cargo.py również działał poprawnie
+# Definiujemy aliasy, aby oba typy importów w Twoich plikach działały
 update_data = update_row
 delete_data = delete_row
