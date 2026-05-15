@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import google.generativeai as genai
+from google import genai  # NOWA, WSPIERANA BIBLIOTEKA GOOGLE
 
 # ==========================================
 # ⚙️ VORTEX CORE ENGINE 
@@ -42,12 +42,24 @@ def append_data(sheet_name, new_row_list):
         st.error(f"Błąd zapisu: {e}")
         return False
 
-# --- 4. INICJALIZACJA AI (GEMINI) ---
+# --- 4. INICJALIZACJA AI (GEMINI) - ZAKTUALIZOWANY STANDARD ---
+class GeminiModelWrapper:
+    """Wrapper zapewniający kompatybilność nowej biblioteki ze starym kodem Skanera."""
+    def __init__(self, client, model_name):
+        self.client = client
+        self.model_name = model_name
+
+    def generate_content(self, contents):
+        return self.client.models.generate_content(
+            model=self.model_name,
+            contents=contents
+        )
+
 def init_ai_model():
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        return model
+        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # Zwracamy Wrapper, dzięki czemu Skaner będzie działał po staremu bez zmian w jego kodzie
+        return GeminiModelWrapper(client, 'gemini-1.5-flash')
     except Exception as e:
         st.error("Nie znaleziono klucza API Gemini lub błąd inicjalizacji.")
         return None
@@ -61,7 +73,7 @@ def get_next_daily_number(prefix_date):
         return len(dzisiejsze) + 1
     return 1
 
-# --- 6. ORYGINALNE FUNKCJE AKTUALIZACJI (np. dla Bazy Przewoźników) ---
+# --- 6. ORYGINALNE FUNKCJE AKTUALIZACJI ---
 def update_row(sheet_name, row_index, new_row_data):
     try:
         client = get_gsheets_client()
@@ -70,7 +82,7 @@ def update_row(sheet_name, row_index, new_row_data):
         st.cache_data.clear() 
         return True
     except Exception as e:
-        st.error(f"Błąd aktualizacji: {e}")
+        st.error(f"⚠️ Błąd silnika (Update - {sheet_name}): {e}")
         return False
 
 def delete_row(sheet_name, row_index):
@@ -96,7 +108,6 @@ def update_data(worksheet_name, identifier_col, identifier_val, new_data_dict):
         
         if identifier_col not in df.columns: return False
         
-        # Szukamy indeksu (+2 ponieważ gspread liczy od 1, a wiersz 1 to nagłówki)
         matching_idx = df.index[df[identifier_col].astype(str) == str(identifier_val)].tolist()
         if not matching_idx: return False
         row_idx = matching_idx[0] + 2
