@@ -186,7 +186,7 @@ def generate_pro_pdf(dane):
     pdf.set_font("Arial", 'B', 8); pdf.set_text_color(100, 100, 100); pdf.cell(55, 5, pdf_sanitize("GROSS WEIGHT / WAGA BRUTTO:"), border=0)
     pdf.set_font("Arial", 'B', 10); pdf.set_text_color(40, 40, 40); pdf.set_xy(65, pdf.get_y()); pdf.cell(50, 5, pdf_sanitize(f"{dane['waga']} kg"))
     
-    pdf.set_xy(10, sy + 30)
+    pdf.set_xy(10, sy + 35)
     draw_section_header(4, "SPECIAL PROVISIONS / UWAGI SPECJALNE")
     pdf.set_font("Arial", 'I', 10); pdf.multi_cell(0, 6, pdf_sanitize(dane['uwagi']))
 
@@ -194,7 +194,7 @@ def generate_pro_pdf(dane):
 
 # --- INTERFEJS UŻYTKOWNIKA ---
 st.set_page_config(page_title="Vorteza PRO", page_icon="🚀", layout="centered")
-st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🚀 Szybkie Zlecenie PRO v5.2</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🚀 Szybkie Zlecenie PRO v5.3</h2>", unsafe_allow_html=True)
 
 with st.spinner("Ładowanie telemetrii..."):
     df_projekty = fetch_data("Projekty")
@@ -237,35 +237,20 @@ with st.container(border=True):
         lista_cennikowa = list(slownik_stawek.keys()) if isinstance(slownik_stawek, dict) and slownik_stawek else ["Brak stawek"]
         nazwa_przewoznika = f1.selectbox("Wybierz partnera:", ["Wybierz..."] + lista_cennikowa)
         
-        # --- INTELIGENTNE ŁĄCZENIE Z BAZĄ (FUZZY MATCHING) ---
         if nazwa_przewoznika != "Wybierz...":
             if not df_przewoznicy.empty and 'Skrócona Nazwa' in df_przewoznicy.columns:
                 lista_nazw_w_bazie = df_przewoznicy['Skrócona Nazwa'].dropna().astype(str).tolist()
-                
                 najlepsze_dopasowania = difflib.get_close_matches(nazwa_przewoznika, lista_nazw_w_bazie, n=1, cutoff=0.4)
                 
                 if najlepsze_dopasowania:
                     dopasowana_nazwa = najlepsze_dopasowania[0]
                     row_p = df_przewoznicy[df_przewoznicy['Skrócona Nazwa'] == dopasowana_nazwa]
                     r = row_p.iloc[0]
-                    
-                    pelna = str(r.get('Pełna Nazwa', dopasowana_nazwa))
-                    ulica = str(r.get('Ulica i numer', ''))
-                    miasto = str(r.get('Kod pocztowy i Miasto', ''))
-                    kraj = str(r.get('Kraj', 'Polska'))
-                    nip = str(r.get('NIP', ''))
-                    
-                    detale_przewoznika = f"{pelna}\n{ulica}\n{miasto}, {kraj}\nNIP: {nip}".strip()
-                    
-                    if dopasowana_nazwa.lower() != nazwa_przewoznika.lower():
-                        st.info(f"🔗 Połączono stawkę **{nazwa_przewoznika}** z firmą w bazie: **{dopasowana_nazwa}**\n\nDane:\n{detale_przewoznika}")
-                    else:
-                        st.info(f"✅ Pełne dane z bazy:\n{detale_przewoznika}")
+                    detale_przewoznika = f"{str(r.get('Pełna Nazwa', dopasowana_nazwa))}\n{str(r.get('Ulica i numer', ''))}\n{str(r.get('Kod pocztowy i Miasto', ''))}, {str(r.get('Kraj', 'Polska'))}\nNIP: {str(r.get('NIP', ''))}".strip()
+                    st.info(f"🔗 Połączono: **{dopasowana_nazwa}**")
                 else:
                     detale_przewoznika = nazwa_przewoznika
-                    st.warning(f"⚠️ Stawka '{nazwa_przewoznika}' jest w cenniku, ale nie znaleziono podobnej firmy w bazie 'Zleceniobiorcy'.")
-            else:
-                 detale_przewoznika = nazwa_przewoznika
+            else: detale_przewoznika = nazwa_przewoznika
 
         dane_wybranego = slownik_stawek.get(nazwa_przewoznika, {"cost": 0.0, "postoj": 0.0}) if isinstance(slownik_stawek, dict) else {}
         stawka_final = f2.number_input("Cena Total:", value=float(dane_wybranego.get("cost", 0.0)))
@@ -273,8 +258,8 @@ with st.container(border=True):
         postoj = f4.number_input("Postój:", value=float(dane_wybranego.get("postoj", 0.0))) if typ_zlecenia == "Pełny event" else 0.0
             
     else:
-        nazwa_przewoznika = st.text_input("Nazwa firmy z giełdy:", placeholder="np. TRANS-LOG Sp. z o.o.")
-        detale_przewoznika = st.text_area("Pełne dane (Adres, NIP):", placeholder="Wpisz komplet danych do zlecenia...")
+        nazwa_przewoznika = st.text_input("Nazwa firmy z giełdy:")
+        detale_przewoznika = st.text_area("Pełne dane (Adres, NIP):")
         f1, f2, f3 = st.columns(3)
         stawka_final = f1.number_input("Stawka netto:", min_value=0.0)
         waluta = f2.selectbox("Waluta:", ["EUR", "PLN"])
@@ -297,7 +282,8 @@ with st.container(border=True):
     c_auto = d_auto.text_input("Auto / Kierowca:", placeholder="np. PO 12345 / Jan Kowalski")
     wartosc_towaru = d_wart.number_input("Wartość towaru (PLN):", min_value=0, value=100000)
     u1, u2 = st.columns([3, 1])
-    instrukcje = u1.text_area("Uwagi dla kierowcy:", value="Parking strzeżony, pasy zabezpieczające; załadować po długości.", height=70)
+    domyslny_tekst = "Parking strzeżony, pasy zabezpieczające; załadować po długości, casy nie mogą leżeć, kłódka / Guarded parking, safety belts; load lengthwise, cases cannot lie down, safe lock."
+    instrukcje = u1.text_area("Instrukcje dodatkowe:", value=domyslny_tekst, height=80)
     podpis = u2.radio("Podpis:", ["PD", "PK"], horizontal=True)
 
 if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_width=True):
@@ -312,7 +298,6 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
                 if place_name == "INNE (wpisz ręcznie)": return manual_addr
                 if place_name == "Magazyn SQM Komorniki":
                     return "SQM Prosta Spółka Akcyjna ;\nul. Poznańska 165, 62-052 Komorniki,\nNIP: 7792361182"
-                
                 if df is not None and not df.empty:
                     row = df[df['Nazwa do listy'] == place_name]
                     if not row.empty:
@@ -322,6 +307,15 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
 
             full_zal_pdf = build_full_address(z_sel, z_man, df_miejsca)
             full_roz_pdf = build_full_address(r_sel, r_man, df_miejsca)
+            
+            # --- KONSTRUKCJA PEŁNYCH UWAG (BAZA + PDF) ---
+            historia_cyklu = f"CYKL: {data_zal} -> {data_roz}" + (f" | EMP: {data_emp_in} | POWRÓT: {data_emp_out}" if typ_zlecenia == "Pełny event" else "")
+            
+            # To trafi do bazy danych (kolumna uwagi)
+            pelne_uwagi_db = f"AUTO: {c_auto} || WART: {wartosc_towaru} PLN || {historia_cyklu} || {instrukcje}"
+            
+            # To trafi na PDF (Sekcja Special Provisions)
+            uwagi_na_pdf = f"VEHICLE/DRIVER: {c_auto}\n{instrukcje}"
             
             idx = get_next_daily_number(datetime.now().strftime("%Y-%m-%d"))
             nr_zlecenia = f"CRG{datetime.now().strftime('%y/%m%d')}/{podpis}{idx:02d}"
@@ -333,16 +327,16 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
                 "zaladunek": full_zal_pdf, "data_zal": str(data_zal),
                 "rozladunek": full_roz_pdf, "data_roz": str(data_roz),
                 "data_emp_in": str(data_emp_in), "data_emp_out": str(data_emp_out),
-                "waga": waga, "auto": c_auto, "uwagi": instrukcje, "opiekun": podpis 
+                "waga": waga, "auto": c_auto, "uwagi": uwagi_na_pdf, "opiekun": podpis 
             }
             
             wiersz_db = [
                 datetime.now().strftime("%Y-%m-%d %H:%M"), nr_zlecenia, "LOGISTYKA CARGO", nazwa_przewoznika,
                 final_zal_db, final_roz_db, str(data_zal), str(data_roz), "Zabudowa Targowa PRO",
-                "", "", "", "", f"AUTO: {c_auto} || {instrukcje}", "", projekt, "TARGI", f"{stawka_final} {waluta}"
+                "", "", "", "", pelne_uwagi_db, "", projekt, "TARGI", f"{stawka_final} {waluta}"
             ]
             
             if append_data("Zlecenia", wiersz_db):
                 pdf_bytes = generate_pro_pdf(paczka_pdf)
-                st.success(f"✅ Zlecenie {nr_zlecenia} zapisane!")
+                st.success(f"✅ Zlecenie {nr_zlecenia} zapisane z pełnymi uwagami!")
                 st.download_button("📥 POBIERZ PDF", data=pdf_bytes, file_name=f"Order_{nr_zlecenia.replace('/', '_')}.pdf", mime="application/pdf", use_container_width=True)
