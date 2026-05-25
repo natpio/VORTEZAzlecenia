@@ -201,6 +201,40 @@ with st.spinner("Ładowanie telemetrii..."):
     df_miejsca = fetch_data("Miejsca")
     df_przewoznicy = fetch_data("Zleceniobiorcy")
 
+# --- SZYBKIE DODAWANIE NOWEGO MIEJSCA DO BAZY ---
+with st.expander("➕ Brak miejsca na liście? Dodaj nową lokalizację na stałe"):
+    with st.form("form_nowe_miejsce", clear_on_submit=True):
+        st.markdown("**Dane nowego punktu logistycznego**")
+        nowa_nazwa_lista = st.text_input("Nazwa skrócona (do listy wyboru):*", placeholder="np. BERLIN, DE - Messe Berlin")
+        nowa_firma = st.text_input("Pełna nazwa / Firma:", placeholder="np. Messe Berlin GmbH")
+        nowa_ulica = st.text_input("Ulica i numer:", placeholder="np. Messedamm 22")
+        nowy_kod = st.text_input("Kod pocztowy:", placeholder="np. 14055")
+        nowe_miasto = st.text_input("Miasto:", placeholder="np. Berlin")
+        nowy_kraj = st.text_input("Kraj:", placeholder="np. Niemcy")
+        
+        if st.form_submit_button("💾 Zapisz lokalizację w bazie"):
+            if nowa_nazwa_lista.strip():
+                kolumny_miejsca = df_miejsca.columns.tolist() if not df_miejsca.empty else ["Nazwa do listy", "Nazwa pełna / Firma", "Ulica i numer", "Kod pocztowy", "Miasto", "Kraj"]
+                
+                # Budujemy nowy wiersz, dopasowując znane klucze, resztę zostawiając pustą
+                slownik_nowego = {
+                    "Nazwa do listy": nowa_nazwa_lista.strip(),
+                    "Nazwa pełna / Firma": nowa_firma.strip(),
+                    "Ulica i numer": nowa_ulica.strip(),
+                    "Kod pocztowy": nowy_kod.strip(),
+                    "Miasto": nowe_miasto.strip(),
+                    "Kraj": nowy_kraj.strip()
+                }
+                
+                nowy_wiersz = [slownik_nowego.get(kol, "") for kol in kolumny_miejsca]
+                
+                if append_data("Miejsca", nowy_wiersz):
+                    st.success(f"✅ Dodano pomyślnie: {nowa_nazwa_lista}")
+                    st.cache_data.clear() # Czyszczenie cache, żeby natychmiast zaktualizować listę
+                    st.rerun()
+            else:
+                st.error("❌ Nazwa skrócona jest wymagana!")
+
 lista_eventow = df_projekty['Nazwa Eventu'].dropna().unique().tolist() if not df_projekty.empty else ["Brak"]
 lista_miejsc_baza = df_miejsca['Nazwa do listy'].tolist() if not df_miejsca.empty else []
 opcje_lokalizacji = ["Magazyn SQM Komorniki"] + lista_miejsc_baza + ["INNE (wpisz ręcznie)"]
@@ -215,7 +249,7 @@ with st.container(border=True):
     waga = c2.number_input("Waga (kg):", min_value=100, step=100, value=1000)
     d1, d2 = st.columns(2)
     data_zal = d1.date_input("Data załadunku (PL):", datetime.now())
-    data_roz = d2.date_input("Data rozładunku (Targi):", datetime.now())
+    data_roz = d2.date_input("Data rozładunku (Targi/Cel):", datetime.now())
     if typ_zlecenia == "Pełny event":
         h1, h2 = st.columns(2)
         data_emp_in = h1.date_input("Odbiór pustych:")
@@ -272,9 +306,20 @@ with st.container(border=True):
     with l1:
         z_sel = st.selectbox("Miejsce startu:", opcje_lokalizacji)
         z_man = st.text_input("Adres startu (ręcznie):") if z_sel == "INNE (wpisz ręcznie)" else ""
+        
+    miejsca_rozladunku = []
     with l2:
-        r_sel = st.selectbox("Miejsce celu:", opcje_lokalizacji)
-        r_man = st.text_input("Adres celu (ręcznie):") if r_sel == "INNE (wpisz ręcznie)" else ""
+        if typ_zlecenia == "Tylko dostawa":
+            st.markdown("🚚 **Dostawa wieloetapowa**")
+            liczba_punktow = st.number_input("Liczba miejsc rozładunku:", min_value=1, max_value=10, value=1, step=1)
+            for i in range(int(liczba_punktow)):
+                r_s = st.selectbox(f"Miejsce celu {i+1}:", opcje_lokalizacji, key=f"r_sel_{i}")
+                r_m = st.text_input(f"Adres celu {i+1} (ręcznie):", key=f"r_man_{i}") if r_s == "INNE (wpisz ręcznie)" else ""
+                miejsca_rozladunku.append((r_s, r_m))
+        else:
+            r_s = st.selectbox("Miejsce celu:", opcje_lokalizacji)
+            r_m = st.text_input("Adres celu (ręcznie):") if r_s == "INNE (wpisz ręcznie)" else ""
+            miejsca_rozladunku.append((r_s, r_m))
 
 with st.container(border=True):
     st.markdown("#### 4. Realizacja i Uwagi")
@@ -292,7 +337,6 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
     else:
         with st.spinner("Przetwarzanie..."):
             final_zal_db = z_man if z_sel == "INNE (wpisz ręcznie)" else z_sel
-            final_roz_db = r_man if r_sel == "INNE (wpisz ręcznie)" else r_sel
             
             def build_full_address(place_name, manual_addr, df):
                 if place_name == "INNE (wpisz ręcznie)": return manual_addr
@@ -306,7 +350,21 @@ if st.button("⚡ GENERUJ I ZAPISZ ZLECENIE PRO", type="primary", use_container_
                 return place_name
 
             full_zal_pdf = build_full_address(z_sel, z_man, df_miejsca)
-            full_roz_pdf = build_full_address(r_sel, r_man, df_miejsca)
+            
+            # Przetwarzanie wielu miejsc rozładunku
+            lista_roz_db = []
+            lista_roz_pdf = []
+            
+            for r_s, r_m in miejsca_rozladunku:
+                lista_roz_db.append(r_m if r_s == "INNE (wpisz ręcznie)" else r_s)
+                lista_roz_pdf.append(build_full_address(r_s, r_m, df_miejsca))
+                
+            final_roz_db = " | ".join(lista_roz_db)
+            
+            if len(lista_roz_pdf) > 1:
+                full_roz_pdf = "\n\n".join([f"DROP {idx+1}:\n{tekst}" for idx, tekst in enumerate(lista_roz_pdf)])
+            else:
+                full_roz_pdf = lista_roz_pdf[0]
             
             # --- KONSTRUKCJA PEŁNYCH UWAG (BAZA + PDF) ---
             historia_cyklu = f"CYKL: {data_zal} -> {data_roz}" + (f" | EMP: {data_emp_in} | POWRÓT: {data_emp_out}" if typ_zlecenia == "Pełny event" else "")
