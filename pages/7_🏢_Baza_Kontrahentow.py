@@ -15,7 +15,7 @@ df_miejsca = fetch_data("Miejsca")
 tab1, tab2, tab3 = st.tabs(["📋 PRZEGLĄDAJ BAZĘ", "➕ DODAJ NOWĄ LOKALIZACJĘ", "🛠️ ZARZĄDZAJ (EDYTUJ / USUŃ)"])
 
 # ==========================================
-# ZAKŁADKA 1: PRZEGLĄDANIE
+# ZAKŁADKA 1: PRZEGLĄDANIE Z WYSZUKIWARKĄ
 # ==========================================
 with tab1:
     col_refresh, col_empty = st.columns([1, 4])
@@ -24,8 +24,26 @@ with tab1:
         st.rerun()
 
     if not df_miejsca.empty:
-        st.dataframe(df_miejsca, use_container_width=True, hide_index=True, height=500)
-        st.caption(f"Łącznie lokalizacji w bazie: {len(df_miejsca)}")
+        # Interaktywne pole wyszukiwania
+        wyszukiwana_fraza = st.text_input(
+            "🔍 Wyszukaj lokalizację (wpisz nazwę, miasto, ulicę, kontakt lub firmę):", 
+            placeholder="np. Berlin, Poznańska, SQM, Jan Kowalski..."
+        )
+        
+        if wyszukiwana_fraza:
+            # Przeszukiwanie wszystkich kolumn arkusza
+            maska = df_miejsca.apply(lambda row: row.astype(str).str.contains(wyszukiwana_fraza, case=False, na=False).any(), axis=1)
+            df_filtrowane = df_miejsca[maska]
+            
+            if not df_filtrowane.empty:
+                st.success(f"🔍 Znaleziono {len(df_filtrowane)} pasujących lokalizacji:")
+                st.dataframe(df_filtrowane, use_container_width=True, hide_index=True, height=500)
+            else:
+                st.warning("⚠️ Brak wyników spełniających kryteria wyszukiwania.")
+        else:
+            # Jeśli pole jest puste, wyświetla się domyślnie pełna tabela
+            st.dataframe(df_miejsca, use_container_width=True, hide_index=True, height=500)
+            st.caption(f"Łącznie lokalizacji w bazie: {len(df_miejsca)}")
     else:
         st.info("Baza jest pusta. Dodaj pierwsze miejsce w zakładce obok.")
 
