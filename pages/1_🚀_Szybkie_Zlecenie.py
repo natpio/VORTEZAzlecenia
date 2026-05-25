@@ -201,6 +201,31 @@ with st.spinner("Ładowanie telemetrii..."):
     df_miejsca = fetch_data("Miejsca")
     df_przewoznicy = fetch_data("Zleceniobiorcy")
 
+# --- BAZA MIEJSC: WYSZUKIWARKA ---
+with st.expander("🔍 Przeglądaj i wyszukaj miejsca w bazie"):
+    wyszukiwana_fraza = st.text_input(
+        "Wpisz szukaną frazę (nazwa, miasto, ulica, kod):", 
+        placeholder="np. Messe Berlin, Poznańska, 62-052..."
+    )
+    
+    if not df_miejsca.empty:
+        if wyszukiwana_fraza:
+            # Wyszukiwanie we wszystkich kolumnach, ignorując wielkość liter
+            maska = df_miejsca.apply(lambda row: row.astype(str).str.contains(wyszukiwana_fraza, case=False, na=False).any(), axis=1)
+            znalezione_miejsca = df_miejsca[maska]
+            
+            if not znalezione_miejsca.empty:
+                st.success(f"Znaleziono {len(znalezione_miejsca)} wyników:")
+                # Wyświetlanie przefiltrowanej tabeli
+                st.dataframe(znalezione_miejsca, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Brak wyników dla podanej frazy.")
+        else:
+            # Jeśli nic nie wpisano, pokazujemy całą bazę
+            st.dataframe(df_miejsca, use_container_width=True, hide_index=True)
+    else:
+        st.info("Baza miejsc jest obecnie pusta.")
+
 # --- SZYBKIE DODAWANIE NOWEGO MIEJSCA DO BAZY ---
 with st.expander("➕ Brak miejsca na liście? Dodaj nową lokalizację na stałe"):
     with st.form("form_nowe_miejsce", clear_on_submit=True):
