@@ -1,149 +1,165 @@
-/* --- CZCIONKI --- */
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;900&display=swap');
+/* Import eleganckich, klasycznych czcionek */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lora:wght@400;700&display=swap');
 
-/* --- GŁÓWNE TŁO I TYPOGRAFIA (ANIMOWANY CYBER-MESH) --- */
+/* =========================================
+   1. BAZA APLIKACJI I TYPOGRAFIA
+   ========================================= */
 .stApp {
-    background-color: #020617;
-    background-image: 
-        radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.15) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(56, 189, 248, 0.1) 0px, transparent 50%),
-        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
-    background-position: 0 0, 0 0, -1px -1px, -1px -1px;
-    animation: backgroundDrift 60s linear infinite;
-    color: #f8fafc;
-    font-family: 'Outfit', sans-serif;
+    background: linear-gradient(135deg, #2b1704 0%, #1a0d02 50%, #0d0601 100%) !important;
+    color: #e8d8c3 !important;
+    font-family: 'Lora', serif !important;
 }
 
-@keyframes backgroundDrift {
-    0% { background-position: 0 0, 0 0, 0 0, 0 0; }
-    100% { background-position: 0 0, 0 0, 40px 40px, 40px 40px; }
+/* Tekst główny i etykiety */
+p, span, div, label {
+    font-family: 'Lora', serif;
+    color: #e8d8c3;
 }
 
-/* --- UKRYCIE DOMYŚLNYCH ELEMENTÓW STREAMLIT --- */
-header { visibility: hidden; }
-footer { visibility: hidden; }
-
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 4rem;
-    max-width: 1700px;
+/* Nagłówki (Efekt polerowanego starego złota/mosiądzu) */
+h1, h2, h3, h4, h5, h6 {
+    color: #D4AF37 !important;
+    font-family: 'Playfair Display', serif !important;
+    font-weight: 700 !important;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
+    letter-spacing: 1px;
 }
 
-/* --- SZKLANE KARTY (GLASSMORPHISM) --- */
-div[data-testid="stVerticalBlock"] > div > div > div[data-testid="stVerticalBlock"], 
-div.stMetric {
-    background: rgba(30, 41, 59, 0.4) !important;
-    backdrop-filter: blur(16px) !important;
-    -webkit-backdrop-filter: blur(16px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 20px !important;
-    padding: 1.5rem !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+/* =========================================
+   2. PANEL BOCZNY (Sidebar - Styl Starego Dębu)
+   ========================================= */
+[data-testid="stSidebar"] {
+    background-color: #150a02 !important;
+    border-right: 2px solid #8b6508 !important; /* Mosiężne okucie */
+    box-shadow: inset -10px 0 20px rgba(0,0,0,0.8);
+}
+[data-testid="stSidebarNav"] * {
+    font-family: 'Playfair Display', serif !important;
+    color: #D4AF37 !important;
 }
 
-div[data-testid="stVerticalBlock"] > div > div > div[data-testid="stVerticalBlock"]:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.7), 0 0 20px rgba(56, 189, 248, 0.1) !important;
-    border-color: rgba(56, 189, 248, 0.3) !important;
-}
-
-/* --- STYLIZACJA METRYK (KPI) --- */
-div[data-testid="stMetricLabel"] > div > div > p {
-    color: #94a3b8 !important;
-    font-size: 1.1rem !important;
-    font-weight: 500 !important;
-}
-
-div[data-testid="stMetricValue"] > div {
-    color: #f8fafc !important;
-    font-size: 2.8rem !important;
-    font-weight: 800 !important;
-    text-shadow: 0 0 20px rgba(255,255,255,0.1);
-}
-
-div[data-testid="stMetricDelta"] > div > div > p {
-    color: #38bdf8 !important;
-}
-
-/* --- HOLOGRAFICZNE PRZYCISKI --- */
-.stButton>button {
-    background: linear-gradient(135deg, rgba(56,189,248,0.1) 0%, rgba(14,165,233,0.2) 100%) !important;
-    border: 1px solid rgba(56,189,248,0.3) !important;
-    color: #e0f2fe !important;
-    border-radius: 12px !important;
-    height: 4rem !important;
-    font-size: 1.2rem !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.5px !important;
+/* =========================================
+   3. PRZYCISKI (Styl Mosiężnych Tabliczek)
+   ========================================= */
+.stButton > button, .stDownloadButton > button {
+    background: linear-gradient(to bottom, #8b6508, #5c4002) !important;
+    color: #fdf5e6 !important;
+    border: 1px solid #D4AF37 !important;
+    border-radius: 4px !important;
+    font-family: 'Playfair Display', serif !important;
+    font-weight: bold !important;
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.8), inset 0 1px 2px rgba(255,255,255,0.2) !important;
     transition: all 0.3s ease !important;
-    box-shadow: inset 0 0 20px rgba(56,189,248,0.05) !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
-.stButton>button:hover {
-    background: linear-gradient(135deg, rgba(56,189,248,0.3) 0%, rgba(14,165,233,0.5) 100%) !important;
-    border-color: rgba(56,189,248,0.8) !important;
-    color: #ffffff !important;
-    box-shadow: 0 0 25px rgba(56,189,248,0.4), inset 0 0 15px rgba(255,255,255,0.2) !important;
-    transform: translateY(-2px) scale(1.02) !important;
+.stButton > button:hover, .stDownloadButton > button:hover {
+    background: linear-gradient(to bottom, #D4AF37, #8b6508) !important;
+    color: #1a0d02 !important;
+    border-color: #fff8e7 !important;
+    box-shadow: 0 0 12px rgba(212, 175, 55, 0.6) !important;
+    transform: translateY(-1px);
 }
 
-/* --- POLA TEKSTOWE I FORMULARZE --- */
+/* =========================================
+   4. FORMULARZE, INPUTY, SELECTBOXY
+   ========================================= */
 .stTextInput>div>div>input, 
-.stTextArea>div>div>textarea, 
-.stSelectbox>div>div>div,
+.stNumberInput>div>div>input, 
+.stSelectbox>div>div>div, 
+.stTextArea>div>div>textarea,
 .stDateInput>div>div>input {
-    background-color: rgba(15, 23, 42, 0.6) !important;
-    color: #f8fafc !important;
-    border: 1px solid rgba(56, 189, 248, 0.3) !important;
-    border-radius: 8px !important;
+    background-color: rgba(20, 10, 2, 0.6) !important; /* Ciemne półprzezroczyste szkło */
+    border: 1px solid #8b6508 !important;
+    color: #f4e8d3 !important;
+    font-family: 'Lora', serif !important;
+    border-radius: 2px !important;
 }
 
-/* --- NAGŁÓWKI GRADIENTOWE --- */
-.ultimate-title {
-    background: linear-gradient(to right, #e0f2fe, #38bdf8, #818cf8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-size: 2.5rem;
-    font-weight: 900;
-    letter-spacing: -1px;
-    margin-bottom: 0;
+.stTextInput>div>div>input:focus, 
+.stSelectbox>div>div>div:focus,
+.stTextArea>div>div>textarea:focus {
+    border: 1px solid #D4AF37 !important;
+    box-shadow: 0 0 8px rgba(212, 175, 55, 0.4) !important;
 }
 
-/* --- KONTROLKA STATUSU ONLINE --- */
-.cyber-status {
-    display: inline-flex;
-    align-items: center;
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.3);
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 0.85rem;
-    color: #34d399;
-    font-weight: 600;
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+/* =========================================
+   5. ZAKŁADKI (TABS) - Jak zakładki w starej księdze
+   ========================================= */
+[data-testid="stTabs"] button {
+    font-family: 'Playfair Display', serif !important;
+    color: #a38b5e !important;
+    border-bottom: 2px solid transparent !important;
+}
+[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #D4AF37 !important;
+    border-bottom: 2px solid #D4AF37 !important;
+    font-weight: bold !important;
+    background: rgba(212, 175, 55, 0.05); /* Lekkie podświetlenie aktywnej */
 }
 
-.pulse-dot {
-    height: 8px; 
-    width: 8px;
-    background-color: #10b981;
-    border-radius: 50%;
-    margin-right: 8px;
-    box-shadow: 0 0 10px #10b981;
-    animation: cyberPulse 2s infinite;
+/* =========================================
+   6. ROZWIJANE PANELE (EXPANDERS)
+   ========================================= */
+[data-testid="stExpander"] {
+    background-color: rgba(28, 14, 4, 0.8) !important;
+    border: 1px solid #8b6508 !important;
+    border-radius: 4px !important;
+}
+[data-testid="stExpander"] summary {
+    font-family: 'Playfair Display', serif !important;
+    color: #D4AF37 !important;
 }
 
-@keyframes cyberPulse {
-    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+/* =========================================
+   7. WGRYWARKA PLIKÓW (FILE UPLOADER)
+   ========================================= */
+[data-testid="stFileUploadDropzone"] {
+    background-color: rgba(20, 10, 2, 0.6) !important;
+    border: 2px dashed #8b6508 !important;
+    border-radius: 4px !important;
+}
+[data-testid="stFileUploadDropzone"]:hover {
+    border: 2px dashed #D4AF37 !important;
+    background-color: rgba(43, 23, 4, 0.8) !important;
 }
 
-/* --- WYMUSZENIE BIAŁYCH CZCIONEK --- */
-h1, h2, h3, h4, p, label { 
-    color: #f8fafc !important; 
+/* =========================================
+   8. TABELE (DATAFRAME) - Styl Starego Pergaminu
+   ========================================= */
+[data-testid="stDataFrame"] {
+    background-color: #fdf5e6 !important; /* Kolor papieru */
+    border: 3px solid #5c4002 !important;
+    border-radius: 4px !important;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.1), 5px 5px 15px rgba(0,0,0,0.5);
 }
+[data-testid="stDataFrame"] * {
+    color: #2b1704 !important; /* Atramentowy brąz dla kontrastu na jasnym papierze */
+    font-family: 'Lora', serif !important;
+}
+
+/* =========================================
+   9. METRYKI (KPI)
+   ========================================= */
+[data-testid="stMetricValue"] {
+    color: #D4AF37 !important;
+    font-family: 'Playfair Display', serif !important;
+    text-shadow: 2px 2px 4px #000;
+}
+[data-testid="stMetricLabel"] {
+    color: #a38b5e !important;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+}
+[data-testid="stMetricDelta"] {
+    color: #7a9c78 !important; /* Zgaszona "historyczna" zieleń zamiast neonowej */
+}
+
+/* =========================================
+   10. KONTENERY / RAMKI (Obrazy w muzeum)
+   ========================================= */
+[data-testid="stVerticalBlock"] > div[style*="border"] {
+    border: 2px solid #8b6508 !important;
+    background: rgba(28, 14, 4, 0.75) !important;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.
