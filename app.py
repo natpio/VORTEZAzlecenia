@@ -26,28 +26,21 @@ def command_center():
     # --- METRYKI OPERACYJNE ---
     dzisiaj = datetime.now().strftime("%Y-%m-%d")
     wszystkie_zlecenia = len(df_zlecenia) if not df_zlecenia.empty else 0
-    oczekujace_wyceny = 0
     dzisiejsze_wyjazdy = 0
 
     if not df_zlecenia.empty:
-        if 'Stawka' in df_zlecenia.columns:
-            oczekujace_wyceny = len(df_zlecenia[df_zlecenia['Stawka'].astype(str) == "0"])
         if 'Data Zaladunku' in df_zlecenia.columns:
             dzisiejsze_wyjazdy = len(df_zlecenia[df_zlecenia['Data Zaladunku'].astype(str).str.contains(dzisiaj)])
 
     # --- KAFELKI KPI ---
-    c1, c2, c3, c4 = st.columns(4)
+    # Zmieniono układ z 4 na 2 kolumny
+    c1, c2 = st.columns(2)
     c1.info(f"**🗓️ Zlecenia Total**\n# {wszystkie_zlecenia}")
     c2.success(f"**🚚 Dzisiejsze Załadunki**\n# {dzisiejsze_wyjazdy}")
-    if oczekujace_wyceny > 0:
-        c3.error(f"**🔥 Oczekujące Wyceny**\n# {oczekujace_wyceny}")
-    else:
-        c3.success(f"**✅ Oczekujące Wyceny**\n# 0")
-    c4.warning(f"**📡 Status Systemu**\nONLINE (PRO ENGINE)")
 
     st.markdown("---")
 
-    # --- UKŁAD GŁÓWNY: WERYFIKATOR + TABELE ---
+    # --- UKŁAD GŁÓWNY: TABELE + WERYFIKATOR ---
     col_main, col_verify = st.columns([2, 1])
     
     with col_main:
@@ -58,15 +51,6 @@ def command_center():
             st.dataframe(df_ostatnie, hide_index=True, use_container_width=True)
         else:
             st.info("Brak operacji w bazie.")
-            
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<h4 style='color: #ef4444;'>⚡ Pilne: Do wyceny</h4>", unsafe_allow_html=True)
-        if oczekujace_wyceny > 0:
-            df_pilne = df_zlecenia[df_zlecenia['Stawka'].astype(str) == "0"]
-            kolumny_pilne = [k for k in ['Data wystawienia', 'Numer zlecenia', 'Miejsce Zaladunku', 'Miejsce Rozladunku'] if k in df_pilne.columns]
-            st.dataframe(df_pilne[kolumny_pilne], hide_index=True, use_container_width=True)
-        else:
-            st.success("Wszystkie zlecenia są wycenione. ☕")
 
     # --- NOWY MODUŁ: WERYFIKATOR DOKUMENTÓW PRO ---
     with col_verify:
