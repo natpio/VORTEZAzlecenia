@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
 import qrcode
@@ -6,9 +7,16 @@ import tempfile
 import os
 import hashlib
 import difflib
-# Importujemy funkcję update_row z core.py potrzebną do nadpisywania wiersza
-from core import fetch_data, append_data, update_row, get_next_daily_number
+
+# Importujemy funkcję update_row oraz inject_custom_css z core.py
+from core import fetch_data, append_data, update_row, get_next_daily_number, inject_custom_css
 from pricing import get_all_carrier_rates, TRANSIT_DAYS
+
+# --- KONFIGURACJA STRONY I STYLE ---
+st.set_page_config(page_title="Vorteza PRO", page_icon="🚀", layout="centered")
+
+# Wstrzykujemy muzealny styl CSS
+inject_custom_css()
 
 # --- GLOBALNY FILTR ZNAKÓW DLA FPDF ---
 def pdf_sanitize(text):
@@ -194,12 +202,12 @@ def generate_pro_pdf(dane):
     return bytes(pdf.output(dest='S').encode('latin1'))
 
 # --- INTERFEJS UŻYTKOWNIKA ---
-st.set_page_config(page_title="Vorteza PRO", page_icon="🚀", layout="centered")
 
 # --- BOCZNY PANEL: WYBÓR TRYBU PRACY ---
 tryb_pracy = st.sidebar.radio("Narzędzia modułu:", ["Nowe Zlecenie", "Edycja Istniejącego Zlecenia"])
 
-st.markdown(f"<h2 style='text-align: center; color: #38bdf8;'>🚀 {tryb_pracy} PRO v5.4</h2>", unsafe_allow_html=True)
+# Usunęliśmy sztywny kolor - teraz nagłówek przyjmie złoty styl z pliku CSS
+st.markdown(f"<h2 style='text-align: center;'>🚀 {tryb_pracy} PRO v5.4</h2>", unsafe_allow_html=True)
 
 with st.spinner("Ładowanie telemetrii..."):
     df_projekty = fetch_data("Projekty")
@@ -237,14 +245,14 @@ val_podpis = "PD"
 val_miasto_docelowe = "Wybierz..."
 val_miejsca_rozladunku_raw = []
 
-# Filtrowanie zleceń Cargo
+# Filtrowanie zleceń Cargo (Z poprawką na pd.DataFrame())
 if not df_zlecenia.empty:
     if 'Dział' in df_zlecenia.columns:
         df_cargo = df_zlecenia[df_zlecenia['Dział'] == 'LOGISTYKA CARGO'].copy()
     else:
         df_cargo = df_zlecenia.copy()
 else:
-    df_cargo = st.DataFrame()
+    df_cargo = pd.DataFrame()
 
 if tryb_pracy == "Edycja Istniejącego Zlecenia":
     if not df_cargo.empty:
